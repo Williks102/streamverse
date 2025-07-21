@@ -1,26 +1,30 @@
+// ===================================================
+// 📁 src/app/vod/[id]/page.tsx (CORRIGÉ)
+// ===================================================
 
-import { getEventById } from '@/lib/data';
+import { EventService } from '@/services/events';
 import VideoPlayer from '@/components/VideoPlayer';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Clock, FileText, User, Ticket } from 'lucide-react';
-import {notFound} from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getLowestPrice } from '@/lib/utils';
 
 interface VodPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function VodPage({ params }: VodPageProps) {
-  const event = await getEventById(params.id);
+  const { id } = await params;
+  const event = await EventService.getEventById(id);
 
   if (!event || event.type !== 'vod') {
     notFound();
   }
   
-  const lowestPrice = getLowestPrice(event.tickets);
+  const lowestPrice = getLowestPrice(event.tickets || []);
   const isFree = lowestPrice === 0;
   const checkoutLink = `/events/${event.id}/checkout`;
 
@@ -54,7 +58,6 @@ export default async function VodPage({ params }: VodPageProps) {
          </div>
       )}
 
-
       <section className="bg-card p-6 rounded-lg shadow-md">
         <div className="flex flex-col md:flex-row justify-between md:items-start mb-2">
             <h1 className="text-3xl font-bold mb-2 md:mb-0">{event.title}</h1>
@@ -62,44 +65,48 @@ export default async function VodPage({ params }: VodPageProps) {
               {isFree ? 'Gratuit' : `À partir de ${lowestPrice.toLocaleString('fr-FR')} XOF`}
             </Badge>
         </div>
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+        
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 text-muted-foreground">
           <Badge variant="outline">{event.category}</Badge>
           {event.duration && (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Clock size={16} className="mr-1" />
+            <div className="flex items-center text-sm gap-1">
+              <Clock size={14} />
               <span>{event.duration}</span>
             </div>
           )}
           {event.promoterInfo && (
-            <div className="flex items-center text-sm text-muted-foreground gap-1.5">
-               {event.promoterInfo.avatarUrl ? (
-                  <Avatar className="h-5 w-5">
-                    <AvatarImage src={event.promoterInfo.avatarUrl} alt={event.promoterInfo.name} data-ai-hint="promoter logo"/>
-                    <AvatarFallback>{event.promoterInfo.name.substring(0,1)}</AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <User size={14} />
-                )}
-              <span>Hosted by {event.promoterInfo.name}</span>
+            <div className="flex items-center text-sm gap-1.5">
+              <Avatar className="h-5 w-5">
+                <AvatarImage src={event.promoterInfo.avatarUrl} />
+                <AvatarFallback><User size={12} /></AvatarFallback>
+              </Avatar>
+              <span>Par {event.promoterInfo.name}</span>
             </div>
           )}
         </div>
-        <p className="text-muted-foreground mb-6">{event.description}</p>
-        
-        <Button asChild variant="link" className="p-0 h-auto text-primary hover:text-accent">
-          <Link href={`/events/${event.id}/summary`}>
-            <FileText className="mr-2 h-4 w-4" />
-            View/Generate Event Summary
-          </Link>
-        </Button>
-      </section>
 
-      {/* Placeholder for comments section */}
-      <section className="bg-card p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-semibold mb-4">Comments</h2>
-        <div className="h-48 border border-dashed border-border rounded-md flex items-center justify-center">
-          <p className="text-muted-foreground">(Comments Feature Coming Soon)</p>
+        <p className="text-muted-foreground mb-6 leading-relaxed">
+          {event.description}
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-4 pt-4">
+          {!isFree && (
+            <Button asChild size="lg" className="flex-1">
+              <Link href={checkoutLink}>
+                <Ticket className="mr-2 h-5 w-5" />
+                Acheter l'accès
+              </Link>
+            </Button>
+          )}
+          
+          {event.transcript && (
+            <Button variant="outline" asChild size="lg" className="flex-1">
+              <Link href={`/events/${event.id}/summary`}>
+                <FileText className="mr-2 h-5 w-5" />
+                Voir le résumé IA
+              </Link>
+            </Button>
+          )}
         </div>
       </section>
     </div>

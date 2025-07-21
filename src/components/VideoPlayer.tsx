@@ -1,36 +1,43 @@
+// src/components/VideoPlayer.tsx - Corrections des types
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import PlaybackControls from './PlaybackControls';
-import { Zap, Play } from 'lucide-react'; // Zap for placeholder, Play for play button
+import { Zap, Play } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button'; // Added import for Button
+import { Button } from '@/components/ui/button';
 
 interface VideoPlayerProps {
-  src?: string; // Actual video source
+  src?: string | null; // ✅ Accepter null
   thumbnailUrl: string;
   isLive?: boolean;
   title: string;
-  'data-ai-hint'?: string;
+  'data-ai-hint'?: string | null; // ✅ Accepter null
 }
 
-export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, "data-ai-hint": dataAiHint }: VideoPlayerProps) {
+export default function VideoPlayer({ 
+  src, 
+  thumbnailUrl, 
+  isLive = false, 
+  title, 
+  "data-ai-hint": dataAiHint 
+}: VideoPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(isLive ? Infinity : 300); // Mock duration 5 mins for VOD
+  const [duration, setDuration] = useState(isLive ? Infinity : 300);
   const [volume, setVolume] = useState(0.75);
-  const [isRecording, setIsRecording] = useState(false); // Mock recording state
-  const videoRef = useRef<HTMLVideoElement | null>(null); // If using actual video element
+  const [isRecording, setIsRecording] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
   const handlePlayPause = () => {
-    if (src && videoRef.current) { // For actual video element
+    if (src && videoRef.current) {
       if (isPlaying) videoRef.current.pause();
       else videoRef.current.play();
       setIsPlaying(!isPlaying);
-    } else { // Mock behavior
+    } else {
       setIsPlaying(!isPlaying);
       if (!isPlaying) {
         toast({ title: `Playback started for "${title}"` });
@@ -43,13 +50,11 @@ export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, 
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
     if (src && videoRef.current) videoRef.current.volume = newVolume;
-    // toast({ title: `Volume set to ${Math.round(newVolume * 100)}%`});
   };
 
   const handleSeek = (time: number) => {
     setCurrentTime(time);
     if (src && videoRef.current) videoRef.current.currentTime = time;
-    // toast({ title: `Seeked to ${Math.round(time)}s`});
   };
 
   const handleRecord = () => {
@@ -62,7 +67,7 @@ export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, 
       intervalRef.current = setInterval(() => {
         setCurrentTime((prevTime) => {
           if (prevTime < duration) return prevTime + 1;
-          clearInterval(intervalRef.current!);
+          if (intervalRef.current) clearInterval(intervalRef.current);
           setIsPlaying(false);
           return duration;
         });
@@ -75,11 +80,9 @@ export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, 
     };
   }, [isPlaying, duration, isLive]);
 
-
-  // Effect for actual video element updates (if used)
   useEffect(() => {
     const video = videoRef.current;
-    if (video) {
+    if (video && src) { // ✅ Vérifier que src existe
       const updateProgress = () => setCurrentTime(video.currentTime);
       const updateDuration = () => setDuration(video.duration);
       const handlePlay = () => setIsPlaying(true);
@@ -92,7 +95,6 @@ export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, 
       video.addEventListener('pause', handlePause);
       video.addEventListener('volumechange', handleVolume);
       
-      // Initial setup
       setDuration(video.duration || (isLive ? Infinity : 300));
       setVolume(video.volume);
 
@@ -106,33 +108,46 @@ export default function VideoPlayer({ src, thumbnailUrl, isLive = false, title, 
     }
   }, [src, isLive]);
 
-
   return (
     <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-2xl group w-full">
-      {/* Replace with actual <video> tag if src is available */}
-      {src && !isLive ? (
-        <video ref={videoRef} src={src} className="w-full h-full object-contain" poster={thumbnailUrl} />
+      {/* ✅ Vérification stricte de src avant d'afficher la vidéo */}
+      {src && typeof src === 'string' && src.trim() !== '' && !isLive ? (
+        <video 
+          ref={videoRef} 
+          src={src} 
+          className="w-full h-full object-contain" 
+          poster={thumbnailUrl} 
+        />
       ) : (
         <>
           <Image
             src={thumbnailUrl}
             alt={title || "Video placeholder"}
-            fill // Changed from layout="fill" to fill for Next 13+
-            objectFit="cover"
+            fill
+            style={{ objectFit: 'cover' }} // ✅ Utiliser style au lieu de objectFit prop
             priority
-            data-ai-hint={dataAiHint || 'video content'}
+            data-ai-hint={dataAiHint || 'video content'} // ✅ Fallback pour null
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/30">
             {!isPlaying && (
-              <Button variant="ghost" size="icon" onClick={handlePlayPause} className="w-20 h-20 text-white hover:text-primary hover:bg-white/10 rounded-full">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handlePlayPause} 
+                className="w-20 h-20 text-white hover:text-primary hover:bg-white/10 rounded-full"
+              >
                 <Play size={48} className="fill-current" />
               </Button>
             )}
-             {isLive && !isPlaying && (
-              <div className="absolute top-4 left-4 text-white p-2 bg-red-600/80 rounded text-sm font-semibold animate-pulse">STREAM OFFLINE (placeholder)</div>
+            {isLive && !isPlaying && (
+              <div className="absolute top-4 left-4 text-white p-2 bg-red-600/80 rounded text-sm font-semibold animate-pulse">
+                STREAM OFFLINE (placeholder)
+              </div>
             )}
             {isLive && isPlaying && (
-              <div className="absolute top-4 left-4 text-white p-2 bg-green-600/80 rounded text-sm font-semibold">STREAMING LIVE (placeholder)</div>
+              <div className="absolute top-4 left-4 text-white p-2 bg-green-600/80 rounded text-sm font-semibold">
+                STREAMING LIVE (placeholder)
+              </div>
             )}
           </div>
         </>

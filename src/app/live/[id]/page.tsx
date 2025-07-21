@@ -1,27 +1,28 @@
-
+// src/app/live/[id]/page.tsx - Corrections des types
 import { getEventById } from '@/lib/data';
 import VideoPlayer from '@/components/VideoPlayer';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileText, User, Ticket } from 'lucide-react';
-import {notFound} from 'next/navigation';
+import { notFound } from 'next/navigation';
 import LiveChat from '@/components/LiveChat';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getLowestPrice } from '@/lib/utils';
 
 interface LiveStreamPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>; // ✅ Next.js 15 - params est une Promise
 }
 
 export default async function LiveStreamPage({ params }: LiveStreamPageProps) {
-  const event = await getEventById(params.id);
+  const { id } = await params; // ✅ Await params
+  const event = await getEventById(id);
 
   if (!event || event.type !== 'live') {
     notFound();
   }
   
-  const lowestPrice = getLowestPrice(event.tickets);
+  const lowestPrice = getLowestPrice(event.tickets || []); // ✅ Fallback pour tickets
   const isFree = lowestPrice === 0;
   const checkoutLink = `/events/${event.id}/checkout`;
 
@@ -35,75 +36,65 @@ export default async function LiveStreamPage({ params }: LiveStreamPageProps) {
         </Button>
 
         {isFree ? (
-            <VideoPlayer 
-                src={event.videoSrc} 
-                thumbnailUrl={event.thumbnailUrl} 
-                isLive 
-                title={event.title} 
-                data-ai-hint={event['data-ai-hint']}
-            />
+          <VideoPlayer 
+            src={event.videoSrc} // ✅ Peut être null/undefined maintenant
+            thumbnailUrl={event.thumbnailUrl} 
+            isLive 
+            title={event.title} 
+            data-ai-hint={event['data-ai-hint']} // ✅ Peut être null/undefined
+          />
         ) : (
-             <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-2xl group w-full flex flex-col items-center justify-center text-center p-8">
-                <Ticket size={64} className="text-primary mb-4" />
-                <h2 className="text-2xl font-bold text-white mb-2">Accès Payant</h2>
-                <p className="text-muted-foreground mb-6 max-w-md">
-                    Cet événement est disponible à l'achat. Obtenez votre accès pour regarder le flux en direct.
-                </p>
-                <Button asChild size="lg">
-                    <Link href={checkoutLink}>
-                        Acheter l'accès (à partir de {lowestPrice.toLocaleString('fr-FR')} XOF)
-                    </Link>
-                </Button>
-            </div>
+          <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-2xl group w-full flex flex-col items-center justify-center text-center p-8">
+            <Ticket size={64} className="text-primary mb-4" />
+            <h2 className="text-2xl font-bold text-white mb-2">Accès Payant</h2>
+            <p className="text-muted-foreground mb-6 max-w-md">
+              Cet événement est disponible à l'achat. Obtenez votre accès pour regarder le flux en direct.
+            </p>
+            <Button asChild size="lg">
+              <Link href={checkoutLink}>
+                Acheter l'accès (à partir de {lowestPrice.toLocaleString('fr-FR')} XOF)
+              </Link>
+            </Button>
+          </div>
         )}
 
         <section className="bg-card p-6 rounded-lg shadow-md">
           <div className="flex flex-col md:flex-row justify-between md:items-start mb-2">
             <h1 className="text-3xl font-bold mb-2 md:mb-0">{event.title}</h1>
-             <Badge variant={isFree ? 'secondary' : 'default'} className="text-lg px-4 py-2 self-start md:self-auto">
+            <Badge variant={isFree ? 'secondary' : 'default'} className="text-lg px-4 py-2 self-start md:self-auto">
               {isFree ? 'Gratuit' : `À partir de ${lowestPrice.toLocaleString('fr-FR')} XOF`}
             </Badge>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
-            <Badge variant="outline">{event.category}</Badge>
-            {event.status === 'live' && (
-              <Badge variant="destructive">LIVE</Badge>
-            )}
-            {event.status === 'upcoming' && (
-              <Badge variant="secondary">UPCOMING</Badge>
-            )}
-            {event.promoterInfo && (
-              <div className="flex items-center text-sm text-muted-foreground gap-1.5">
-                {event.promoterInfo.avatarUrl ? (
-                  <Avatar className="h-5 w-5">
-                    <AvatarImage src={event.promoterInfo.avatarUrl} alt={event.promoterInfo.name} data-ai-hint="promoter logo" />
-                    <AvatarFallback>{event.promoterInfo.name.substring(0,1)}</AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <User size={14} />
-                )}
-                <span>Hosted by {event.promoterInfo.name}</span>
+
+          <p className="text-muted-foreground mb-4">{event.description}</p>
+
+          {event.promoterInfo && (
+            <div className="flex items-center space-x-3 mb-4">
+              <Avatar>
+                <AvatarImage src={event.promoterInfo.avatarUrl} alt={event.promoterInfo.name} />
+                <AvatarFallback>
+                  <User size={20} />
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-medium">Organisé par {event.promoterInfo.name}</p>
+                <p className="text-sm text-muted-foreground">Promoteur Officiel</p>
               </div>
-            )}
-          </div>
-          <p className="text-muted-foreground mb-6">{event.description}</p>
-          
-          {event.startTime && (
-            <p className="text-sm text-foreground mb-1">
-              <strong>Start Time:</strong> {new Date(event.startTime).toLocaleString()}
-            </p>
+            </div>
           )}
 
-          <Button asChild variant="link" className="p-0 h-auto text-primary hover:text-accent">
-            <Link href={`/events/${event.id}/summary`}>
-              <FileText className="mr-2 h-4 w-4" />
-              View/Generate Event Summary
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-4">
+            <Button asChild variant="outline">
+              <Link href={`/events/${event.id}/summary`}>
+                <FileText className="mr-2 h-4 w-4" />
+                Voir le Résumé
+              </Link>
+            </Button>
+          </div>
         </section>
       </div>
 
-      <div className="lg:col-span-1">
+      <div className="space-y-6">
         <LiveChat eventId={event.id} />
       </div>
     </div>

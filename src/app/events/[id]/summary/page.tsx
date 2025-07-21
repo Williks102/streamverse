@@ -1,17 +1,21 @@
+// ===================================================
+// 📁 src/app/events/[id]/summary/page.tsx (CORRIGÉ)
+// ===================================================
 
-import { getEventById } from '@/lib/data';
+import { EventService } from '@/services/events';
 import AISummary from '@/components/AISummary';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
-import {notFound} from 'next/navigation';
+import { notFound } from 'next/navigation';
 
 interface EventSummaryPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function EventSummaryPage({ params }: EventSummaryPageProps) {
-  const event = await getEventById(params.id);
+  const { id } = await params;
+  const event = await EventService.getEventById(id);
 
   if (!event) {
     notFound();
@@ -30,7 +34,7 @@ export default async function EventSummaryPage({ params }: EventSummaryPageProps
       <AISummary 
         eventId={event.id} 
         eventTitle={event.title}
-        transcript={event.transcript} 
+        transcript={event.transcript || ''} 
       />
     </div>
   );
