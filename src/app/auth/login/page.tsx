@@ -1,137 +1,134 @@
-// ===================================================
-// 📁 src/app/auth/login/page.tsx
-// ===================================================
+// src/app/auth/login/page.tsx - Page de connexion corrigée
+"use client";
 
-'use client'
-
-import { Auth } from '@supabase/auth-ui-react'
-import { ThemeSupa } from '@supabase/auth-ui-shared'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { useAuthClient } from '@/hooks/useAuthClient';
 
 export default function LoginPage() {
-  const supabase = createClientComponentClient()
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
+  const [email, setEmail] = useState('koffiw4@gmail.com');
+  const [password, setPassword] = useState('promoter123');
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const router = useRouter();
+  const { toast } = useToast();
+  const auth = useAuthClient();
 
+  // ✅ Utiliser useEffect pour la redirection
   useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        router.push('/promoter/dashboard')
-      } else {
-        setLoading(false)
-      }
+    if (!auth.isLoading && auth.isAuthenticated) {
+      router.push('/promoter/dashboard');
     }
+  }, [auth.isLoading, auth.isAuthenticated, router]);
 
-    checkAuth()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-    // Écouter les changements d'authentification
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('🔄 Auth state change:', event, session?.user?.email)
-        
-        if (session) {
-          // Vérifier/créer le profil utilisateur
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-
-          if (!profile) {
-            // Créer le profil s'il n'existe pas
-            await supabase
-              .from('profiles')
-              .insert({
-                id: session.user.id,
-                name: session.user.email?.split('@')[0] || 'Utilisateur',
-                role: 'promoter', // Par défaut promoteur pour votre app
-                avatar_url: 'https://placehold.co/40x40.png'
-              })
-          }
-
-          router.push('/promoter/dashboard')
-        }
+    try {
+      const { error } = await auth.signIn(email, password);
+      
+      if (error) {
+        toast({
+          title: "Erreur de connexion",
+          description: error.message,
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Connexion réussie",
+          description: "Vous êtes maintenant connecté"
+        });
+        // La redirection se fera automatiquement via useEffect
       }
-    )
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Une erreur s'est produite",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    return () => subscription.unsubscribe()
-  }, [supabase, router])
-
-  if (loading) {
+  // ✅ Afficher loading pendant la vérification d'auth
+  if (auth.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Vérification de l'authentification...</p>
+        </div>
       </div>
-    )
+    );
+  }
+
+  // ✅ Ne pas afficher le formulaire si déjà connecté
+  if (auth.isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Redirection vers le dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="text-center space-y-2">
-          <CardTitle className="text-3xl font-bold text-primary">
-            StreamVerse
-          </CardTitle>
-          <CardDescription className="text-lg">
-            Connexion Promoteur
-          </CardDescription>
-          <p className="text-sm text-muted-foreground">
-            Connectez-vous pour gérer vos événements
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Connexion StreamVerse</CardTitle>
+          <CardDescription>Connectez-vous à votre compte promoteur</CardDescription>
         </CardHeader>
-        
-        <CardContent className="space-y-4">
-          <Auth
-            supabaseClient={supabase}
-            appearance={{ 
-              theme: ThemeSupa,
-              variables: {
-                default: {
-                  colors: {
-                    brand: 'hsl(var(--primary))',
-                    brandAccent: 'hsl(var(--primary))',
-                  }
-                }
-              }
-            }}
-            providers={[]} // Seulement email/password pour l'instant
-            redirectTo={`${location.origin}/auth/callback`}
-            onlyThirdPartyProviders={false}
-            magicLink={false}
-            view="sign_in"
-            showLinks={true}
-            localization={{
-              variables: {
-                sign_in: {
-                  email_label: 'Email',
-                  password_label: 'Mot de passe',
-                  button_label: 'Se connecter',
-                  loading_button_label: 'Connexion...',
-                  link_text: 'Vous avez déjà un compte ? Connectez-vous'
-                },
-                sign_up: {
-                  email_label: 'Email',
-                  password_label: 'Mot de passe',
-                  button_label: 'S\'inscrire',
-                  loading_button_label: 'Inscription...',
-                  link_text: 'Pas de compte ? Inscrivez-vous'
-                }
-              }
-            }}
-          />
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium mb-1">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium mb-1">
+                Mot de passe
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? 'Connexion...' : 'Se connecter'}
+            </Button>
+          </form>
           
-          <div className="text-center text-sm text-muted-foreground mt-6">
-            <p>Utilisateur test :</p>
-            <p className="font-mono">promoter@aiconf.inc</p>
-            <p className="font-mono">password123</p>
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+            <p className="text-sm text-blue-700">
+              <strong>Compte test :</strong><br />
+              Email : koffiw4@gmail.com<br />
+              Mot de passe : promoter123
+            </p>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
