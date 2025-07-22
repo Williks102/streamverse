@@ -1,4 +1,4 @@
-// src/app/events/[id]/checkout/page.tsx - Commission déduite côté promoteur
+// src/app/events/[id]/checkout/page.tsx - Sans message de transparence
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, CreditCard, Loader2, Ticket, Check, Info } from 'lucide-react';
+import { ArrowLeft, CreditCard, Loader2, Ticket, Check } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { getEventById } from '@/lib/data';
@@ -202,104 +202,106 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2">
             {isFree ? (
-              // Formulaire simplifié pour les événements gratuits
-              <Card className="shadow-xl">
+              <Card className="border-green-200 bg-green-50">
                 <CardHeader>
-                  <CardTitle className="text-2xl flex items-center gap-2">
-                    <Check className="text-green-600" /> Confirmation de réservation
+                  <CardTitle className="flex items-center gap-2 text-green-800">
+                    <Check className="h-5 w-5" />
+                    Confirmation gratuite
                   </CardTitle>
-                  <CardDescription>Confirmez votre réservation gratuite.</CardDescription>
+                  <CardDescription className="text-green-700">
+                    Cet événement est gratuit. Confirmez votre participation.
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-green-800 font-medium">Événement gratuit</p>
-                    <p className="text-green-700 text-sm">Aucun paiement requis pour cet événement.</p>
-                  </div>
-                  
+                <CardContent>
                   <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)}>
-                      <div className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="email"
-                          render={({ field }) => (
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Adresse e-mail</FormLabel>
-                            <FormControl><Input placeholder="votre.email@exemple.com" {...field} /></FormControl>
+                            <FormLabel>Email de confirmation</FormLabel>
+                            <FormControl>
+                              <Input placeholder="votre@email.com" {...field} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
-                          )}
-                        />
-                        
-                        <Button type="submit" className="w-full" size="lg">
-                          <Ticket className="mr-2 h-5 w-5" />
-                          Confirmer ma réservation gratuite
-                        </Button>
-                      </div>
+                        )}
+                      />
+                      
+                      <Button type="submit" className="w-full" size="lg">
+                        <Check className="mr-2 h-4 w-4" />
+                        Confirmer ma participation (Gratuit)
+                      </Button>
                     </form>
                   </Form>
                 </CardContent>
               </Card>
             ) : (
-              // Formulaire de paiement complet
-              <Card className="shadow-xl">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-2xl flex items-center gap-2">
-                    <CreditCard /> Paiement sécurisé
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5" />
+                    Informations de paiement
                   </CardTitle>
-                  <CardDescription>Finalisez votre achat pour accéder à l'événement.</CardDescription>
+                  <CardDescription>
+                    Saisissez vos informations pour finaliser l'achat
+                  </CardDescription>
                 </CardHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)}>
-                    <CardContent className="space-y-6">
+                <CardContent>
+                  <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                       <FormField
                         control={form.control}
                         name="email"
                         render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Adresse e-mail</FormLabel>
-                          <FormControl><Input placeholder="votre.email@exemple.com" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                        )}
-                      />
-                      
-                      <Separator />
-                      
-                      <div className="space-y-4">
-                        <h3 className="text-lg font-semibold">Informations de paiement</h3>
-                        
-                        <FormField
-                          control={form.control}
-                          name="cardName"
-                          render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Nom sur la carte</FormLabel>
-                            <FormControl><Input placeholder="Jean Dupont" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="cardNumber"
-                          render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Numéro de carte</FormLabel>
+                            <FormLabel>Email de confirmation</FormLabel>
                             <FormControl>
-                              <Input placeholder="1234567890123456" maxLength={16} {...field} />
+                              <Input placeholder="votre@email.com" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
-                          )}
-                        />
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField
-                            control={form.control}
-                            name="expiryDate"
-                            render={({ field }) => (
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name="cardName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nom sur la carte</FormLabel>
+                            <FormControl>
+                              <Input placeholder="John Doe" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name="cardNumber"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Numéro de carte</FormLabel>
+                            <FormControl>
+                              <Input 
+                                placeholder="1234567890123456" 
+                                maxLength={16}
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="expiryDate"
+                          render={({ field }) => (
                             <FormItem>
                               <FormLabel>Date d'expiration</FormLabel>
                               <FormControl>
@@ -307,13 +309,13 @@ export default function CheckoutPage() {
                               </FormControl>
                               <FormMessage />
                             </FormItem>
-                            )}
-                          />
-                          
-                          <FormField
-                            control={form.control}
-                            name="cvc"
-                            render={({ field }) => (
+                          )}
+                        />
+                        
+                        <FormField
+                          control={form.control}
+                          name="cvc"
+                          render={({ field }) => (
                             <FormItem>
                               <FormLabel>CVC</FormLabel>
                               <FormControl>
@@ -321,60 +323,66 @@ export default function CheckoutPage() {
                               </FormControl>
                               <FormMessage />
                             </FormItem>
-                            )}
-                          />
-                        </div>
+                          )}
+                        />
                       </div>
                       
                       <Button type="submit" className="w-full" size="lg">
-                        <CreditCard className="mr-2 h-5 w-5" />
+                        <CreditCard className="mr-2 h-4 w-4" />
                         Payer {clientTotal.toLocaleString('fr-FR')} XOF
                       </Button>
-                    </CardContent>
-                  </form>
-                </Form>
+                    </form>
+                  </Form>
+                </CardContent>
               </Card>
             )}
         </div>
 
-        {/* Résumé de commande avec répartition */}
-        <div className="lg:col-span-1 space-y-4">
-          <Card className="sticky top-8">
+        <div className="space-y-6">
+          <Card>
             <CardHeader>
-              <CardTitle>Résumé de la commande</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Ticket className="h-5 w-5" />
+                Résumé de commande
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 <img 
                   src={event.thumbnailUrl} 
                   alt={event.title}
-                  className="w-16 h-16 rounded object-cover"
+                  className="w-16 h-16 rounded-lg object-cover"
                 />
-                <div className="flex-1">
-                  <h3 className="font-medium text-sm">{event.title}</h3>
-                  <Badge variant="outline" className="mt-1">{event.category}</Badge>
+                <div>
+                  <h3 className="font-semibold">{event.title}</h3>
+                  <Badge variant="secondary" className="text-xs">
+                    {event.type.toUpperCase()}
+                  </Badge>
                 </div>
               </div>
-              
+
               <Separator />
-              
-              <div className="space-y-3">
+
+              <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="font-medium">{selectedTicket.name}</span>
-                  <span>×{quantity}</span>
+                  <span>Billet</span>
+                  <span>{selectedTicket.name}</span>
                 </div>
-                
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between">
+                  <span>Quantité</span>
+                  <span>{quantity}</span>
+                </div>
+                <div className="flex justify-between">
                   <span>Prix unitaire</span>
-                  <span>{selectedTicket.price.toLocaleString('fr-FR')} XOF</span>
+                  <span>{isFree ? 'Gratuit' : `${selectedTicket.price.toLocaleString('fr-FR')} XOF`}</span>
                 </div>
-                
-                <Separator />
-                
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total à payer</span>
-                  <span>{isFree ? 'Gratuit' : `${clientTotal.toLocaleString('fr-FR')} XOF`}</span>
-                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-between font-bold text-lg">
+                <span>Total</span>
+                <span>{isFree ? 'Gratuit' : `${clientTotal.toLocaleString('fr-FR')} XOF`}</span>
               </div>
 
               {event.type === 'offline' && (
@@ -388,36 +396,8 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          {/* ✅ Nouveau : Répartition transparente */}
-          {!isFree && (
-            <Card className="bg-muted/30 border-dashed">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Info className="h-4 w-4" />
-                  Répartition transparente
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span>Promoteur reçoit</span>
-                  <span className="font-medium text-green-600">
-                    {promoterRevenue.toLocaleString('fr-FR')} XOF ({(100 - commissionRate)}%)
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Commission plateforme</span>
-                  <span className="font-medium text-blue-600">
-                    {adminCommission.toLocaleString('fr-FR')} XOF ({commissionRate}%)
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex justify-between font-medium">
-                  <span>Vous payez</span>
-                  <span>{clientTotal.toLocaleString('fr-FR')} XOF</span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* ✅ SUPPRIMÉ : Section "Répartition transparente" */}
+          {/* Cette section a été entièrement supprimée selon la demande */}
         </div>
       </div>
     </div>

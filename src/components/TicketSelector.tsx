@@ -1,4 +1,4 @@
-// src/components/TicketSelector.tsx - Version corrigée sans erreurs TypeScript
+// src/components/TicketSelector.tsx - Version corrigée avec gestion complète des billets multiples
 "use client";
 
 import { useState } from 'react';
@@ -89,13 +89,23 @@ export default function TicketSelector({ event, onClose }: TicketSelectorProps) 
     return selectedTickets.reduce((total, selected) => total + selected.quantity, 0);
   };
 
-  // Générer l'URL de checkout avec les billets sélectionnés
+  // ✅ CORRECTION : Générer l'URL de checkout pour TOUS les billets sélectionnés
   const getCheckoutUrl = () => {
     if (selectedTickets.length === 0) return '#';
     
-    // Pour simplicité, on utilise le premier billet sélectionné
-    const firstSelected = selectedTickets[0];
-    return `/events/${event.id}/checkout?ticketTypeId=${firstSelected.ticketId}&quantity=${firstSelected.quantity}`;
+    // Construire les paramètres pour tous les billets sélectionnés
+    const ticketParams = selectedTickets.map(selected => 
+      `ticket_${selected.ticketId}=${selected.quantity}`
+    ).join('&');
+    
+    // Si on a un seul type de billet, utiliser l'ancienne URL pour compatibilité
+    if (selectedTickets.length === 1) {
+      const selected = selectedTickets[0];
+      return `/events/${event.id}/checkout?ticketTypeId=${selected.ticketId}&quantity=${selected.quantity}`;
+    }
+    
+    // Pour plusieurs types, utiliser une nouvelle approche
+    return `/events/${event.id}/checkout/multi?${ticketParams}`;
   };
 
   const hasSelectedTickets = selectedTickets.length > 0;
@@ -177,7 +187,7 @@ export default function TicketSelector({ event, onClose }: TicketSelectorProps) 
           })}
         </div>
 
-        {/* Résumé de la commande */}
+        {/* ✅ Résumé de la commande corrigé */}
         {hasSelectedTickets && (
           <div className="space-y-4">
             <Separator />
@@ -206,42 +216,43 @@ export default function TicketSelector({ event, onClose }: TicketSelectorProps) 
                 </div>
               </div>
             </div>
+
+            {/* ✅ Boutons d'action avec URL corrigée */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button asChild className="flex-1" size="lg">
+                <Link href={getCheckoutUrl()}>
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Procéder au paiement ({total.toLocaleString('fr-FR')} XOF)
+                </Link>
+              </Button>
+              
+              {onClose && (
+                <Button variant="outline" onClick={onClose} size="lg">
+                  Annuler
+                </Button>
+              )}
+            </div>
+
+            {/* ✅ Informations détaillées sur la sélection */}
+            {selectedTickets.length > 1 && (
+              <div className="text-xs text-muted-foreground bg-blue-50 p-3 rounded">
+                <p className="font-medium text-blue-800 mb-1">
+                  Sélection multiple
+                </p>
+                <p className="text-blue-700">
+                  Vous avez sélectionné {selectedTickets.length} types de billets différents 
+                  pour un total de {totalTickets} billets.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Boutons d'action */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {onClose && (
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-            >
-              Annuler
-            </Button>
-          )}
-          
-          <Button
-            asChild
-            disabled={!hasSelectedTickets}
-            className="flex-1"
-            size="lg"
-          >
-            <Link href={hasSelectedTickets ? getCheckoutUrl() : '#'}>
-              <ShoppingCart className="mr-2 h-5 w-5" />
-              {total === 0 ? 'Réserver Gratuitement' : `Procéder au paiement (${total.toLocaleString('fr-FR')} XOF)`}
-            </Link>
-          </Button>
-        </div>
-
-        {/* Note pour événements physiques */}
-        {event.type === 'offline' && (
-          <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
-            <p className="font-medium text-blue-800 mb-1">Événement physique</p>
-            <p className="text-blue-700">
-              Vos billets seront disponibles en téléchargement après le paiement. 
-              Présentez-les à l'entrée de l'événement.
-            </p>
+        {/* Message d'aide si aucun billet sélectionné */}
+        {!hasSelectedTickets && (
+          <div className="text-center py-8 text-muted-foreground">
+            <Ticket className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+            <p>Sélectionnez au moins un billet pour continuer</p>
           </div>
         )}
       </CardContent>

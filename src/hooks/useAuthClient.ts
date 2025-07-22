@@ -1,8 +1,8 @@
-// src/hooks/useAuthClient.ts - VERSION CORRIGÉE AVEC DEBUG
+// src/hooks/useAuthClient.ts - Hook d'authentification corrigé
 "use client";
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase';
 import type { Database } from '@/types/database';
 import type { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
@@ -26,11 +26,6 @@ interface AuthState {
   isPromoter: boolean;
 }
 
-// Client Supabase côté client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
-
 export function useAuthClient() {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -43,6 +38,7 @@ export function useAuthClient() {
 
   const router = useRouter();
   const { toast } = useToast();
+  const supabase = createClient();
 
   // ✅ Fonction pour récupérer le profil utilisateur
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
@@ -67,7 +63,7 @@ export function useAuthClient() {
             const newProfile = {
               id: user.id,
               name: user.email?.split('@')[0] || 'Utilisateur',
-              role: 'promoter' as const,
+              role: 'user' as const, // Par défaut 'user' au lieu de 'promoter'
               avatar_url: null,
             };
 
@@ -97,167 +93,186 @@ export function useAuthClient() {
     }
   };
 
-  // ✅ Fonction de connexion
-  const signIn = async (email: string, password: string) => {
+  // ✅ Fonction de connexion - sans refreshProfile
+  const signIn = async (credentials: { email: string; password: string }) => {
     try {
-      console.log('🔐 [SIGN IN] Tentative connexion:', email);
+      setState(prev => ({ ...prev, isLoading: true }));
+
+      const { data, error } = await supabase.auth.signInWithPassword(credentials);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.user) {
+        console.log('✅ [SIGN IN] Utilisateur connecté:', data.user.email);
+        
+        // Récupérer le profil
+        const profile = await fetchProfile(data.user.id);
+        
+        setState({
+          user: data.user,
+          profile,
+          session: data.session,
+          isLoading: false,
+          isAuthenticated: true,
+          isPromoter: profile?.role === 'promoter' || profile?.role === 'admin',
+        });
+
+        toast({
+          title: "Connexion réussie",
+          description: `Bienvenue ${data.user.email}`,
+        });
+
+        return true;
+      }
+
+      return false;
+    } catch (error: any) {
+      console.error('❌ [SIGN IN] Erreur:', error);
+      setState(prev => ({ ...prev, isLoading: false }));
       
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      toast({
+        title: "Erreur de connexion",
+        description: error.message || "Impossible de se connecter",
+        variant: "destructive"
+      });
+
+      return false;
+    }
+  };
+
+  // ✅ Fonction d'inscription - sans refreshProfile
+  const signUp = async (credentials: { email: string; password: string; name?: string }) => {
+    try {
+      setState(prev => ({ ...prev, isLoading: true }));
+
+      const { data, error } = await supabase.auth.signUp({
+        email: credentials.email,
+        password: credentials.password,
+        options: {
+          data: {
+            name: credentials.name || credentials.email.split('@')[0],
+          }
+        }
       });
 
       if (error) {
-        console.error('❌ [SIGN IN] Erreur:', error);
-        return { error };
+        throw error;
       }
 
-      console.log('✅ [SIGN IN] Connexion réussie:', data.user?.email);
-      return { data, error: null };
-    } catch (error) {
-      console.error('❌ [SIGN IN] Exception:', error);
-      return { error: error as Error };
+      console.log('✅ [SIGN UP] Utilisateur créé:', data.user?.email);
+      
+      setState(prev => ({ ...prev, isLoading: false }));
+
+      toast({
+        title: "Inscription réussie",
+        description: "Vérifiez votre email pour confirmer votre compte",
+      });
+
+      return true;
+    } catch (error: any) {
+      console.error('❌ [SIGN UP] Erreur:', error);
+      setState(prev => ({ ...prev, isLoading: false }));
+      
+      toast({
+        title: "Erreur d'inscription",
+        description: error.message || "Impossible de créer le compte",
+        variant: "destructive"
+      });
+
+      return false;
     }
   };
 
   // ✅ Fonction de déconnexion
   const signOut = async () => {
     try {
-      console.log('🚪 [SIGN OUT] Déconnexion...');
       await supabase.auth.signOut();
-    } catch (error) {
-      console.error('❌ [SIGN OUT] Erreur:', error);
-    }
-  };
-
-  // ✅ Récupérer les informations utilisateur pour les Server Actions
-  const getUserInfoForServerAction = () => {
-    console.log('📋 [GET USER INFO] État actuel:', {
-      userExists: !!state.user,
-      profileExists: !!state.profile,
-      isAuthenticated: state.isAuthenticated,
-      isPromoter: state.isPromoter,
-      userId: state.user?.id,
-      profileId: state.profile?.id,
-      profileRole: state.profile?.role
-    });
-
-    if (!state.user) {
-      console.error('❌ [GET USER INFO] Utilisateur non trouvé');
-      throw new Error('Utilisateur non authentifié - user manquant');
-    }
-
-    if (!state.profile) {
-      console.error('❌ [GET USER INFO] Profil non trouvé');
-      throw new Error('Utilisateur non authentifié - profil manquant');
-    }
-
-    const userInfo = {
-      id: state.user.id,
-      email: state.user.email || '',
-      profileId: state.profile.id,
-      profileName: state.profile.name || '',
-      profileRole: state.profile.role,
-      avatarUrl: state.profile.avatar_url || undefined,
-    };
-
-    console.log('✅ [GET USER INFO] Infos utilisateur préparées:', userInfo);
-    return userInfo;
-  };
-
-  // ✅ Tester l'authentification
-  const testAuth = async () => {
-    try {
-      console.log('🧪 [CLIENT AUTH TEST] Début du test...');
       
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      console.log('🧪 [CLIENT AUTH TEST] User:', user?.email, 'Error:', userError);
-
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log('🧪 [CLIENT AUTH TEST] Session:', !!session, 'Error:', sessionError);
-
-      console.log('🧪 [CLIENT AUTH TEST] État actuel:', {
-        isAuthenticated: state.isAuthenticated,
-        isPromoter: state.isPromoter,
-        profileExists: !!state.profile,
-        userExists: !!state.user
-      });
-
-      if (state.profile) {
-        console.log('🧪 [CLIENT AUTH TEST] Profile:', {
-          id: state.profile.id,
-          role: state.profile.role,
-          name: state.profile.name
-        });
-      }
-
-      return {
-        success: !!user && !!state.profile && state.isAuthenticated,
-        user: user ? { id: user.id, email: user.email } : null,
-        profile: state.profile,
-        session: !!session,
-        error: userError?.message || sessionError?.message || null
-      };
-    } catch (error) {
-      console.error('🧪 [CLIENT AUTH TEST ERROR]:', error);
-      return {
-        success: false,
+      setState({
         user: null,
         profile: null,
-        session: false,
-        error: error instanceof Error ? error.message : 'Erreur inconnue'
-      };
+        session: null,
+        isLoading: false,
+        isAuthenticated: false,
+        isPromoter: false,
+      });
+
+      toast({
+        title: "Déconnexion réussie",
+        description: "À bientôt !",
+      });
+
+      router.push('/');
+    } catch (error: any) {
+      console.error('❌ [SIGN OUT] Erreur:', error);
+      
+      toast({
+        title: "Erreur de déconnexion",
+        description: error.message || "Impossible de se déconnecter",
+        variant: "destructive"
+      });
     }
   };
 
-  // ✅ Initialisation et écoute des changements d'authentification
+  // ✅ Fonction pour recharger le profil manuellement
+  const refreshUserProfile = async () => {
+    if (!state.user) return;
+    
+    try {
+      const profile = await fetchProfile(state.user.id);
+      setState(prev => ({
+        ...prev,
+        profile,
+        isPromoter: profile?.role === 'promoter' || profile?.role === 'admin',
+      }));
+    } catch (error) {
+      console.error('❌ [REFRESH PROFILE] Erreur:', error);
+    }
+  };
+
+  // Initialiser l'état de l'authentification
   useEffect(() => {
-    let mounted = true;
+    let isMounted = true;
 
     const initAuth = async () => {
       try {
-        console.log('🚀 [INIT AUTH] Initialisation...');
-        
+        // Récupérer la session actuelle
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error('❌ [INIT AUTH] Erreur récupération session:', error);
-          if (mounted) {
+          console.error('❌ [INIT AUTH] Erreur session:', error);
+          if (isMounted) {
             setState(prev => ({ ...prev, isLoading: false }));
           }
           return;
         }
 
-        if (session?.user && mounted) {
-          console.log('👤 [INIT AUTH] Session trouvée pour:', session.user.email);
+        if (session?.user) {
+          console.log('✅ [INIT AUTH] Session existante trouvée:', session.user.email);
           
           const profile = await fetchProfile(session.user.id);
           
-          if (profile) {
+          if (isMounted) {
             setState({
               user: session.user,
-              profile: profile,
-              session: session,
+              profile,
+              session,
               isLoading: false,
               isAuthenticated: true,
-              isPromoter: profile.role === 'promoter',
+              isPromoter: profile?.role === 'promoter' || profile?.role === 'admin',
             });
-            console.log('✅ [INIT AUTH] État mis à jour:', {
-              userId: session.user.id,
-              profileRole: profile.role,
-              isPromoter: profile.role === 'promoter'
-            });
-          } else {
-            console.log('❌ [INIT AUTH] Impossible de récupérer/créer le profil');
+          }
+        } else {
+          console.log('ℹ️ [INIT AUTH] Aucune session trouvée');
+          if (isMounted) {
             setState(prev => ({ ...prev, isLoading: false }));
           }
-        } else if (mounted) {
-          console.log('🚫 [INIT AUTH] Aucune session trouvée');
-          setState(prev => ({ ...prev, isLoading: false }));
         }
       } catch (error) {
         console.error('❌ [INIT AUTH] Exception:', error);
-        if (mounted) {
+        if (isMounted) {
           setState(prev => ({ ...prev, isLoading: false }));
         }
       }
@@ -268,63 +283,47 @@ export function useAuthClient() {
     // Écouter les changements d'authentification
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 [AUTH STATE CHANGE] Événement:', event);
-
-        if (!mounted) return;
-
+        console.log('🔄 [AUTH CHANGE]', event, session?.user?.email);
+        
         if (event === 'SIGNED_IN' && session?.user) {
-          console.log('📥 [AUTH STATE CHANGE] Connexion détectée:', session.user.email);
-          
           const profile = await fetchProfile(session.user.id);
           
-          if (profile) {
+          if (isMounted) {
             setState({
               user: session.user,
-              profile: profile,
-              session: session,
+              profile,
+              session,
               isLoading: false,
               isAuthenticated: true,
-              isPromoter: profile.role === 'promoter',
-            });
-            
-            toast({
-              title: "Connexion réussie",
-              description: `Bienvenue ${session.user.email}`
+              isPromoter: profile?.role === 'promoter' || profile?.role === 'admin',
             });
           }
         } else if (event === 'SIGNED_OUT') {
-          console.log('📤 [AUTH STATE CHANGE] Déconnexion détectée');
-          setState({
-            user: null,
-            profile: null,
-            session: null,
-            isLoading: false,
-            isAuthenticated: false,
-            isPromoter: false,
-          });
-        } else if (event === 'TOKEN_REFRESHED' && session) {
-          console.log('🔄 [AUTH STATE CHANGE] Token rafraîchi');
-          setState(prev => ({
-            ...prev,
-            user: session.user,
-            session: session
-          }));
+          if (isMounted) {
+            setState({
+              user: null,
+              profile: null,
+              session: null,
+              isLoading: false,
+              isAuthenticated: false,
+              isPromoter: false,
+            });
+          }
         }
       }
     );
 
     return () => {
-      mounted = false;
+      isMounted = false;
       subscription.unsubscribe();
     };
-  }, [toast]);
+  }, []);
 
   return {
     ...state,
     signIn,
+    signUp,
     signOut,
-    testAuth,
-    getUserInfoForServerAction,
-    supabase,
+    refreshUserProfile, // ✅ Remplace refreshProfile
   };
 }

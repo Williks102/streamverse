@@ -1,4 +1,4 @@
-// src/types/index.ts - TYPES CORRIGÉS ET UNIFIÉS
+// src/types/index.ts - Types Order corrigés
 // Interface principale pour les événements
 export interface AppEvent {
   id: string;
@@ -46,6 +46,27 @@ export interface UserProfile {
   avatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ✅ Interface Order corrigée avec purchaseDate ET créatedAt pour compatibilité
+export interface Order {
+  id: string;
+  userId: string;
+  eventId: string;
+  ticketId: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  purchaseDate: string; // ✅ Propriété principale pour la date d'achat
+  createdAt: string;     // ✅ Alias pour compatibilité
+  event?: AppEvent;
+  ticket?: Ticket;
+}
+
+// ✅ Interface pour créer une nouvelle commande
+export interface NewOrderPayload {
+  userId: string;
+  eventId: string;
+  ticketId: string;
+  email?: string;
 }
 
 // Types pour les formulaires de création/modification d'événements
@@ -101,18 +122,6 @@ export interface PaginatedResponse<T> {
   };
 }
 
-// Types pour les commandes
-export interface Order {
-  id: string;
-  userId: string;
-  eventId: string;
-  ticketId: string;
-  status: 'pending' | 'completed' | 'cancelled';
-  createdAt: string;
-  event?: AppEvent;
-  ticket?: Ticket;
-}
-
 // Types pour les actions sur les événements
 export type EventAction = 'create' | 'update' | 'delete' | 'publish' | 'unpublish';
 
@@ -156,10 +165,16 @@ export interface AppError {
   details?: any;
 }
 
+// ✅ Types pour les players vidéo
+export type VideoQuality = '240p' | '360p' | '480p' | '720p' | '1080p' | 'auto';
+export type StreamType = 'mp4' | 'hls' | 'dash' | 'webrtc';
+export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error' | 'ended';
+
 // Types pour les constantes
 export const EVENT_TYPES = ['live', 'vod', 'offline'] as const;
 export const EVENT_STATUSES = ['live', 'upcoming', 'ended', 'recorded', 'scheduled', 'available'] as const;
 export const USER_ROLES = ['user', 'promoter', 'admin'] as const;
+export const VIDEO_QUALITIES = ['240p', '360p', '480p', '720p', '1080p', 'auto'] as const;
 
 // Types utilitaires
 export type EventType = typeof EVENT_TYPES[number];

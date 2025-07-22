@@ -281,6 +281,7 @@ export function useLiveStreaming(options: UseStreamingOptions = {}) {
   const streaming = useStreaming(streamingOptions);
   const [isLive, setIsLive] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [chatMessages, setChatMessages] = useState<Array<{id: string; user: string; message: string; timestamp: number}>>([]);
 
   // Simuler le statut live et le nombre de spectateurs
   useEffect(() => {
@@ -288,20 +289,47 @@ export function useLiveStreaming(options: UseStreamingOptions = {}) {
       setIsLive(true);
       
       // Simuler les changements de spectateurs
-      const interval = setInterval(() => {
+      const viewerInterval = setInterval(() => {
         setViewerCount(prev => Math.max(0, prev + Math.floor(Math.random() * 10) - 5));
       }, 5000);
 
-      return () => clearInterval(interval);
+      // Simuler des messages de chat
+      const chatInterval = setInterval(() => {
+        const users = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eva'];
+        const messages = ['Super stream!', 'Excellente qualité', 'Question intéressante', '👍', 'Merci pour le contenu'];
+        
+        setChatMessages(prev => [...prev.slice(-10), {
+          id: Date.now().toString(),
+          user: users[Math.floor(Math.random() * users.length)],
+          message: messages[Math.floor(Math.random() * messages.length)],
+          timestamp: Date.now()
+        }]);
+      }, 8000);
+
+      return () => {
+        clearInterval(viewerInterval);
+        clearInterval(chatInterval);
+      };
     } else {
       setIsLive(false);
     }
   }, [streaming.isPlaying]);
 
+  const sendChatMessage = useCallback((message: string, user: string = 'Vous') => {
+    setChatMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      user,
+      message,
+      timestamp: Date.now()
+    }]);
+  }, []);
+
   return {
     ...streaming,
     isLive,
     viewerCount,
+    chatMessages,
+    sendChatMessage,
     goLive: streaming.play,
     stopLive: streaming.pause
   };
@@ -319,11 +347,35 @@ export function useVODStreaming(options: UseStreamingOptions = {}) {
   const streaming = useStreaming(streamingOptions);
   const [chapters, setChapters] = useState<Array<{time: number; title: string}>>([]);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [watchedPercentage, setWatchedPercentage] = useState(0);
+
+  // Mettre à jour le temps de lecture
+  useEffect(() => {
+    if (!videoElementRef.current) return;
+
+    const video = videoElementRef.current;
+    
+    const updateTime = () => {
+      setCurrentTime(video.currentTime);
+      setDuration(video.duration || 0);
+      setWatchedPercentage(video.duration ? (video.currentTime / video.duration) * 100 : 0);
+    };
+
+    video.addEventListener('timeupdate', updateTime);
+    video.addEventListener('loadedmetadata', updateTime);
+
+    return () => {
+      video.removeEventListener('timeupdate', updateTime);
+      video.removeEventListener('loadedmetadata', updateTime);
+    };
+  }, [videoElementRef.current]);
 
   // Changer la vitesse de lecture
   const changePlaybackRate = useCallback((rate: number) => {
-    if (streaming.videoElementRef?.current) {
-      streaming.videoElementRef.current.playbackRate = rate;
+    if (videoElementRef.current) {
+      videoElementRef.current.playbackRate = rate;
       setPlaybackRate(rate);
     }
   }, []);
@@ -335,13 +387,89 @@ export function useVODStreaming(options: UseStreamingOptions = {}) {
     }
   }, [chapters, streaming.seek]);
 
+  // Avancer/reculer rapidement
+  const skipForward = useCallback((seconds: number = 10) => {
+    streaming.seek(Math.min(duration, currentTime + seconds));
+  }, [streaming.seek, currentTime, duration]);
+
+  const skipBackward = useCallback((seconds: number = 10) => {
+    streaming.seek(Math.max(0, currentTime - seconds));
+  }, [streaming.seek, currentTime]);
+
+  // Marquer comme favori ou ajouter un signet
+  const addBookmark = useCallback((time?: number, title?: string) => {
+    const bookmarkTime = time ?? currentTime;
+    const bookmarkTitle = title ?? `Signet à ${Math.floor(bookmarkTime / 60)}:${(Math.floor(bookmarkTime) % 60).toString().padStart(2, '0')}`;
+    
+    // Ici vous pourriez sauvegarder en base de données
+    console.log('Signet ajouté:', { time: bookmarkTime, title: bookmarkTitle });
+  }, [currentTime]);
+
   return {
     ...streaming,
     chapters,
     playbackRate,
+    currentTime,
+    duration,
+    watchedPercentage,
     changePlaybackRate,
     goToChapter,
+    skipForward,
+    skipBackward,
+    addBookmark,
     setChapters
+  };
+}
+
+// Hook utilitaire pour la qualité adaptative personnalisée
+export function useAdaptiveQuality(streaming: ReturnType<typeof useStreaming>) {
+  const [networkSpeed, setNetworkSpeed] = useState(0);
+  const [deviceType, setDeviceType] = useState<'mobile' | 'desktop' | 'tablet'>('desktop');
+
+  useEffect(() => {
+    // Détecter le type d'appareil
+    const userAgent = navigator.userAgent;
+    if (/Mobi|Android/i.test(userAgent)) {
+      setDeviceType('mobile');
+    } else if (/Tablet|iPad/i.test(userAgent)) {
+      setDeviceType('tablet');
+    }
+
+    // Estimer la vitesse de connexion si disponible
+    if ('connection' in navigator) {
+      const connection = (navigator as any).connection;
+      if (connection && connection.downlink) {
+        setNetworkSpeed(connection.downlink);
+      }
+    }
+  }, []);
+
+  // Recommander une qualité basée sur l'appareil et la connexion
+  const getRecommendedQuality = useCallback(() => {
+    if (networkSpeed < 1) return '360p';
+    if (networkSpeed < 2.5) return '480p';
+    if (deviceType === 'mobile' && networkSpeed < 5) return '720p';
+    if (networkSpeed < 5) return '720p';
+    return '1080p';
+  }, [networkSpeed, deviceType]);
+
+  // Appliquer automatiquement la qualité recommandée
+  useEffect(() => {
+    if (streaming.availableQualities.length > 0 && networkSpeed > 0) {
+      const recommended = getRecommendedQuality();
+      const hasQuality = streaming.availableQualities.some(q => q.label === recommended);
+      
+      if (hasQuality && streaming.currentQuality === 'auto') {
+        setTimeout(() => streaming.setQuality(recommended), 2000);
+      }
+    }
+  }, [streaming.availableQualities, networkSpeed, getRecommendedQuality, streaming]);
+
+  return {
+    networkSpeed,
+    deviceType,
+    recommendedQuality: getRecommendedQuality(),
+    autoOptimize: () => streaming.setQuality(getRecommendedQuality())
   };
 }
 
