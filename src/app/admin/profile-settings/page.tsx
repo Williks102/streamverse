@@ -1,4 +1,4 @@
-// src/app/admin/profile-settings/page.tsx
+// src/app/admin/profile-settings/page.tsx - Version avec persistance réelle
 "use client";
 
 import { useState, useEffect, useTransition } from 'react';
@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuthClient } from "@/hooks/useAuthClient";
-import { Loader2, Save, User, Mail, Shield, ArrowLeft } from "lucide-react";
+import { Loader2, Save, User, Mail, Shield, ArrowLeft, RefreshCw, CheckCircle } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
+import { updateAdminProfile, getAdminProfile, type UpdateAdminProfileData } from './actions';
 
 const profileSchema = z.object({
   name: z.string().min(2, "Le nom doit contenir au moins 2 caractères."),
@@ -21,16 +23,21 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
-// Action simulée pour mettre à jour le profil admin
-async function updateAdminProfile(values: ProfileFormValues) {
-  console.log('(Simulation) Updating admin profile:', values);
-  // Simuler un délai d'API
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  return { success: true, message: 'Profil administrateur mis à jour avec succès.' };
+interface AdminProfileData {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export default function AdminProfileSettingsPage() {
   const [isPending, startTransition] = useTransition();
+  const [profileData, setProfileData] = useState<AdminProfileData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const { toast } = useToast();
   const auth = useAuthClient();
 
@@ -42,49 +49,149 @@ export default function AdminProfileSettingsPage() {
     }
   });
 
-  // Charger les données du profil
+  // Charger les données du profil au montage
   useEffect(() => {
-    if (auth.profile && auth.user) {
-      form.reset({
-        name: auth.profile.name || '',
-        email: auth.user.email || '',
-      });
+    const loadProfileData = async () => {
+      if (!auth.user?.id) return;
+
+      try {
+        setIsLoading(true);
+        console.log('📡 Chargement profil admin...');
+
+        const result = await getAdminProfile(auth.user.id);
+        
+        if (result.success && result.data) {
+          setProfileData(result.data);
+          form.reset({
+            name: result.data.name || '',
+            email: result.data.email || '',
+          });
+          console.log('✅ Profil admin chargé:', result.data);
+        } else {
+          toast({
+            title: "Erreur",
+            description: result.message || "Impossible de charger le profil",
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        console.error('Erreur chargement profil:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les données du profil",
+          variant: "destructive"
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (auth.user?.id && !auth.isLoading) {
+      loadProfileData();
     }
-  }, [auth.profile, auth.user, form]);
+  }, [auth.user?.id, auth.isLoading, form, toast]);
 
   const onSubmit = (values: ProfileFormValues) => {
+    if (!auth.user?.id) {
+      toast({
+        title: "Erreur",
+        description: "Utilisateur non identifié",
+        variant: "destructive"
+      });
+      return;
+    }
+
     startTransition(async () => {
       try {
-        const result = await updateAdminProfile(values);
+        console.log('💾 Sauvegarde profil admin...', values);
+
+        const updateData: UpdateAdminProfileData = {
+          ...values,
+          userId: auth.user!.id,
+        };
+
+        const result = await updateAdminProfile(updateData);
+
         if (result.success) {
+          // Mettre à jour les données locales
+          if (profileData && result.data) {
+            const updatedProfile = {
+              ...profileData,
+              name: result.data.name,
+              email: result.data.email,
+              updated_at: result.data.updated_at,
+            };
+            setProfileData(updatedProfile);
+          }
+
+          setLastSaved(new Date());
+          
           toast({ 
-            title: "Succès", 
-            description: result.message 
+            title: "✅ Succès", 
+            description: result.message,
+            duration: 3000,
           });
+
+          // Forcer la mise à jour du contexte auth
+          if (auth.refreshProfile) {
+            await auth.refreshProfile();
+          }
+          
         } else {
           toast({ 
-            title: "Erreur", 
-            description: "Échec de la mise à jour du profil", 
+            title: "❌ Erreur", 
+            description: result.message || "Erreur lors de la sauvegarde", 
             variant: "destructive" 
           });
         }
       } catch (error) {
+        console.error('❌ Erreur sauvegarde profil admin:', error);
         toast({ 
-          title: "Erreur", 
-          description: "Une erreur s'est produite lors de la mise à jour", 
+          title: "❌ Erreur", 
+          description: "Une erreur inattendue s'est produite", 
           variant: "destructive" 
         });
       }
     });
   };
 
-  // Vérifier si l'utilisateur est admin
-  if (auth.isLoading) {
+  const handleRefresh = async () => {
+    if (!auth.user?.id) return;
+
+    try {
+      setIsLoading(true);
+      const result = await getAdminProfile(auth.user.id);
+      
+      if (result.success && result.data) {
+        setProfileData(result.data);
+        form.reset({
+          name: result.data.name || '',
+          email: result.data.email || '',
+        });
+        
+        toast({
+          title: "✅ Actualisé",
+          description: "Données du profil rechargées"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'actualiser les données",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Vérifier l'authentification et le rôle
+  if (auth.isLoading || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p>Chargement...</p>
+          <p>Chargement du profil administrateur...</p>
         </div>
       </div>
     );
@@ -106,15 +213,32 @@ export default function AdminProfileSettingsPage() {
     );
   }
 
+  // Calculer si il y a des modifications non sauvegardées
+  const currentValues = form.watch();
+  const hasUnsavedChanges = profileData && (
+    currentValues.name !== (profileData.name || '') ||
+    currentValues.email !== profileData.email
+  );
+
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
       {/* Bouton de retour */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between">
         <Button variant="outline" asChild>
           <Link href="/admin/dashboard">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Retour au Dashboard
           </Link>
+        </Button>
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isLoading}
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          Actualiser
         </Button>
       </div>
 
@@ -129,23 +253,57 @@ export default function AdminProfileSettingsPage() {
         </p>
       </div>
 
+      {/* Indicateur de statut */}
+      {lastSaved && (
+        <Card className="bg-green-50 border-green-200">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 justify-center">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              <span className="text-green-700 font-medium">
+                Dernière sauvegarde : {lastSaved.toLocaleTimeString()}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Informations actuelles */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-blue-800">
-            <User className="h-5 w-5" />
-            Informations actuelles
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-blue-700">
-          <div className="space-y-2">
-            <p><strong>Nom :</strong> {auth.profile?.name || 'Non défini'}</p>
-            <p><strong>Email :</strong> {auth.user?.email || 'Non défini'}</p>
-            <p><strong>Rôle :</strong> <span className="font-semibold">Administrateur</span></p>
-            <p><strong>ID :</strong> {auth.user?.id}</p>
-          </div>
-        </CardContent>
-      </Card>
+      {profileData && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-800">
+              <User className="h-5 w-5" />
+              Informations actuelles
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-blue-700">
+            <div className="flex items-center gap-4 mb-4">
+              <Avatar className="h-16 w-16">
+                <AvatarImage 
+                  src={profileData.avatar_url || undefined} 
+                  alt={profileData.name || 'Admin'} 
+                />
+                <AvatarFallback className="text-lg">
+                  {profileData.name?.charAt(0) || 'A'}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h3 className="text-lg font-semibold text-blue-900">
+                  {profileData.name || 'Nom non défini'}
+                </h3>
+                <p className="text-blue-700">{profileData.email}</p>
+              </div>
+            </div>
+            
+            <div className="space-y-2 text-sm">
+              <p><strong>Rôle :</strong> <span className="font-semibold">Administrateur</span></p>
+              <p><strong>ID :</strong> {profileData.id}</p>
+              <p><strong>Créé le :</strong> {new Date(profileData.created_at).toLocaleDateString('fr-FR')}</p>
+              <p><strong>Mis à jour :</strong> {new Date(profileData.updated_at).toLocaleDateString('fr-FR')}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Formulaire de modification */}
       <Card>
@@ -155,7 +313,7 @@ export default function AdminProfileSettingsPage() {
             Modifier les informations
           </CardTitle>
           <CardDescription>
-            Mettez à jour vos informations personnelles
+            Mettez à jour vos informations personnelles. Les modifications seront sauvegardées de manière permanente.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -195,23 +353,31 @@ export default function AdminProfileSettingsPage() {
                 )}
               />
 
-              <Button 
-                type="submit" 
-                disabled={isPending}
-                className="w-full"
-              >
-                {isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Mise à jour en cours...
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    Sauvegarder les modifications
-                  </>
-                )}
-              </Button>
+              <div className="flex gap-4">
+                <Button 
+                  type="submit" 
+                  disabled={isPending || !hasUnsavedChanges}
+                  className="flex-1"
+                >
+                  {isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sauvegarde en cours...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 h-4 w-4" />
+                      {hasUnsavedChanges ? 'Sauvegarder les modifications' : 'Aucune modification'}
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {hasUnsavedChanges && (
+                <div className="text-sm text-yellow-600 bg-yellow-50 p-3 rounded border border-yellow-200">
+                  ⚠️ Vous avez des modifications non sauvegardées
+                </div>
+              )}
             </form>
           </Form>
         </CardContent>
@@ -226,13 +392,21 @@ export default function AdminProfileSettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="text-yellow-700">
-          <p className="text-sm">
-            En tant qu'administrateur, votre compte dispose de privilèges élevés. 
-            Assurez-vous de maintenir vos informations à jour et d'utiliser un mot de passe fort.
-          </p>
-          <Button variant="outline" className="mt-4 border-yellow-300 text-yellow-800 hover:bg-yellow-100">
-            Changer le mot de passe
-          </Button>
+          <div className="space-y-3">
+            <p className="text-sm">
+              En tant qu'administrateur, votre compte dispose de privilèges élevés. 
+              Assurez-vous de maintenir vos informations à jour et d'utiliser un mot de passe fort.
+            </p>
+            
+            <div className="bg-yellow-100 p-3 rounded border">
+              <p className="text-sm font-medium text-yellow-800 mb-2">Données sauvegardées :</p>
+              <ul className="text-xs text-yellow-700 space-y-1">
+                <li>• Profil : Base de données Supabase</li>
+                <li>• Email : Système d'authentification</li>
+                <li>• Modifications : Temps réel avec revalidation</li>
+              </ul>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

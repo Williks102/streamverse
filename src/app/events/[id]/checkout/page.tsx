@@ -1,26 +1,29 @@
-
+// src/app/events/[id]/checkout/page.tsx - Commission déduite côté promoteur
 "use client";
 
-import Link from 'next/link';
-import Image from 'next/image';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, CreditCard, Lock, Loader2, ShoppingCart } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, CreditCard, Loader2, Ticket, Check, Info } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { getEventById } from '@/lib/data';
-import { useEffect, useState, useMemo } from 'react';
-import type { AppEvent } from '@/types';
-import { Separator } from '@/components/ui/separator';
 import { processCheckoutAction } from './actions';
+import { SettingsService } from '@/services/settings';
+import type { AppEvent } from '@/types';
 
 const paymentSchema = z.object({
-  email: z.string().email({ message: "Veuillez entrer une adresse email valide." }),
+  email: z.string().email({
+    message: "Veuillez entrer une adresse e-mail valide.",
+  }),
   cardName: z.string().min(2, { message: "Le nom sur la carte est requis." }),
   cardNumber: z.string().length(16, { message: "Le numéro de carte doit comporter 16 chiffres." }).regex(/^\d+$/, { message: "Le numéro de carte doit contenir uniquement des chiffres." }),
   expiryDate: z.string().regex(/^(0[1-9]|1[0-2])\/\d{2}$/, { message: "Date d'expiration invalide (MM/AA)." }),
@@ -34,7 +37,10 @@ export default function CheckoutPage() {
   const eventId = params.id as string;
   const { toast } = useToast();
   const [event, setEvent] = useState<AppEvent | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [commissionRate, setCommissionRate] = useState(20);
   const ticketTypeId = searchParams.get('ticketTypeId');
+  const quantity = parseInt(searchParams.get('quantity') || '1');
 
   const form = useForm<z.infer<typeof paymentSchema>>({
     resolver: zodResolver(paymentSchema),
@@ -47,32 +53,91 @@ export default function CheckoutPage() {
     },
   });
 
+  // Charger les données au montage
   useEffect(() => {
     async function fetchEvent() {
-      if (eventId) {
-        const foundEvent = await getEventById(eventId);
-        if (foundEvent) {
-          setEvent(foundEvent);
-        } else {
-          router.push('/'); // Redirect if event not found
+      try {
+        if (eventId) {
+          const foundEvent = await getEventById(eventId);
+          if (foundEvent) {
+            setEvent(foundEvent);
+          } else {
+            router.push('/');
+          }
         }
+      } catch (error) {
+        console.error('Erreur chargement événement:', error);
+        router.push('/');
+      } finally {
+        setIsLoading(false);
       }
     }
+
+    // Récupérer le taux de commission
+    const currentCommissionRate = SettingsService.getCommissionRate();
+    setCommissionRate(currentCommissionRate);
+
     fetchEvent();
   }, [eventId, router]);
 
+  // Écouter les changements de commission
+  useEffect(() => {
+    const unsubscribe = SettingsService.onSettingsChange((settings) => {
+      setCommissionRate(settings.commissionRate);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // ✅ Sélection sécurisée du ticket avec vérifications
   const selectedTicket = useMemo(() => {
-    if (!event || !ticketTypeId) return event?.tickets[0]; // Default to first ticket if none selected
-    return event.tickets.find(t => t.id === ticketTypeId);
+    if (!event || !event.tickets || event.tickets.length === 0) {
+      return null;
+    }
+    
+    if (!ticketTypeId) {
+      return event.tickets[0];
+    }
+    
+    const foundTicket = event.tickets.find(t => t.id === ticketTypeId);
+    return foundTicket || event.tickets[0];
   }, [event, ticketTypeId]);
 
+  // ✅ Calculs corrigés : Client paie le prix affiché
+  const clientTotal = useMemo(() => {
+    if (!selectedTicket) return 0;
+    // Le client paie exactement le prix affiché × quantité
+    return selectedTicket.price * quantity;
+  }, [selectedTicket, quantity]);
+
+  const promoterRevenue = useMemo(() => {
+    if (!selectedTicket) return 0;
+    // Le promoteur reçoit le total moins la commission
+    const commissionAmount = clientTotal * (commissionRate / 100);
+    return clientTotal - commissionAmount;
+  }, [clientTotal, commissionRate]);
+
+  const adminCommission = useMemo(() => {
+    if (!selectedTicket) return 0;
+    // L'admin reçoit la commission
+    return clientTotal * (commissionRate / 100);
+  }, [clientTotal, commissionRate]);
+
   async function onSubmit(values: z.infer<typeof paymentSchema>) {
-    if (!event || !selectedTicket) return;
+    if (!event || !selectedTicket) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de traiter la commande - données manquantes.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     try {
       // Simulate payment processing
       await new Promise(resolve => setTimeout(resolve, 1500));
 
+      // Traiter la commande avec les bons montants
       const result = await processCheckoutAction({
         email: values.email,
         eventId: event.id,
@@ -82,7 +147,7 @@ export default function CheckoutPage() {
       if (result.success) {
         toast({
           title: "Paiement réussi !",
-          description: `Votre accès pour "${event?.title}" a été confirmé.`,
+          description: `Votre commande de ${quantity} billet${quantity > 1 ? 's' : ''} pour "${event.title}" a été confirmée.`,
         });
         router.push(`/events/${eventId}/confirmation`);
       }
@@ -95,18 +160,35 @@ export default function CheckoutPage() {
     }
   }
 
+  // États de chargement et d'erreur
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Chargement de l'événement...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!event || !selectedTicket) {
     return (
       <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-4">Données manquantes</h2>
+          <Button asChild>
+            <Link href="/">Retour à l'accueil</Link>
+          </Button>
+        </div>
       </div>
     );
   }
   
-  const backLink = event.type === 'live' ? `/live/${event.id}` : event.type === 'vod' ? `/vod/${event.id}`: `/offline/${event.id}`;
-  const price = selectedTicket.price;
-  const tax = price * 0.20; // Example 20% tax
-  const total = price + tax;
+  const backLink = event.type === 'live' ? `/live/${event.id}` : 
+                   event.type === 'vod' ? `/vod/${event.id}` : 
+                   `/offline/${event.id}`;
+  const isFree = clientTotal === 0;
 
   return (
     <div className="space-y-8">
@@ -119,126 +201,223 @@ export default function CheckoutPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2">
-            <Card className="shadow-xl">
+            {isFree ? (
+              // Formulaire simplifié pour les événements gratuits
+              <Card className="shadow-xl">
                 <CardHeader>
-                    <CardTitle className="text-2xl flex items-center gap-2">
-                        <CreditCard /> Paiement sécurisé
-                    </CardTitle>
-                    <CardDescription>Finalisez votre achat pour accéder à l'événement.</CardDescription>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <Check className="text-green-600" /> Confirmation de réservation
+                  </CardTitle>
+                  <CardDescription>Confirmez votre réservation gratuite.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-green-800 font-medium">Événement gratuit</p>
+                    <p className="text-green-700 text-sm">Aucun paiement requis pour cet événement.</p>
+                  </div>
+                  
+                  <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                      <div className="space-y-4">
+                        <FormField
+                          control={form.control}
+                          name="email"
+                          render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Adresse e-mail</FormLabel>
+                            <FormControl><Input placeholder="votre.email@exemple.com" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                          )}
+                        />
+                        
+                        <Button type="submit" className="w-full" size="lg">
+                          <Ticket className="mr-2 h-5 w-5" />
+                          Confirmer ma réservation gratuite
+                        </Button>
+                      </div>
+                    </form>
+                  </Form>
+                </CardContent>
+              </Card>
+            ) : (
+              // Formulaire de paiement complet
+              <Card className="shadow-xl">
+                <CardHeader>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <CreditCard /> Paiement sécurisé
+                  </CardTitle>
+                  <CardDescription>Finalisez votre achat pour accéder à l'événement.</CardDescription>
                 </CardHeader>
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)}>
-                        <CardContent className="space-y-6">
-                            <FormField
-                                control={form.control}
-                                name="email"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Adresse e-mail</FormLabel>
-                                    <FormControl><Input placeholder="votre.email@exemple.com" {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
-                            <Separator />
-                            <h3 className="font-semibold text-lg">Informations de paiement</h3>
-                             <FormField
-                                control={form.control}
-                                name="cardName"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Nom sur la carte</FormLabel>
-                                    <FormControl><Input placeholder="Jean Dupont" {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={form.control}
-                                name="cardNumber"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Numéro de carte</FormLabel>
-                                    <FormControl><Input placeholder="•••• •••• •••• ••••" {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
-                            <div className="grid grid-cols-2 gap-4">
-                                <FormField
-                                    control={form.control}
-                                    name="expiryDate"
-                                    render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Expiration (MM/AA)</FormLabel>
-                                        <FormControl><Input placeholder="MM/AA" {...field} /></FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="cvc"
-                                    render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>CVC</FormLabel>
-                                        <FormControl><Input placeholder="•••" {...field} /></FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                    )}
-                                />
-                            </div>
-                        </CardContent>
-                         <CardFooter>
-                            <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                                {form.formState.isSubmitting ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Paiement en cours...
-                                </>
-                                ) : (
-                                <><Lock className="mr-2 h-4 w-4" /> Payer {total.toLocaleString('fr-FR')} XOF</>
-                                )}
-                            </Button>
-                        </CardFooter>
-                    </form>
+                  <form onSubmit={form.handleSubmit(onSubmit)}>
+                    <CardContent className="space-y-6">
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Adresse e-mail</FormLabel>
+                          <FormControl><Input placeholder="votre.email@exemple.com" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                        )}
+                      />
+                      
+                      <Separator />
+                      
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Informations de paiement</h3>
+                        
+                        <FormField
+                          control={form.control}
+                          name="cardName"
+                          render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nom sur la carte</FormLabel>
+                            <FormControl><Input placeholder="Jean Dupont" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                          )}
+                        />
+                        
+                        <FormField
+                          control={form.control}
+                          name="cardNumber"
+                          render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Numéro de carte</FormLabel>
+                            <FormControl>
+                              <Input placeholder="1234567890123456" maxLength={16} {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                          )}
+                        />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="expiryDate"
+                            render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Date d'expiration</FormLabel>
+                              <FormControl>
+                                <Input placeholder="MM/AA" maxLength={5} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                            )}
+                          />
+                          
+                          <FormField
+                            control={form.control}
+                            name="cvc"
+                            render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>CVC</FormLabel>
+                              <FormControl>
+                                <Input placeholder="123" maxLength={3} {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+                      
+                      <Button type="submit" className="w-full" size="lg">
+                        <CreditCard className="mr-2 h-5 w-5" />
+                        Payer {clientTotal.toLocaleString('fr-FR')} XOF
+                      </Button>
+                    </CardContent>
+                  </form>
                 </Form>
-            </Card>
+              </Card>
+            )}
         </div>
-        
-        <div className="lg:col-span-1">
-            <Card className="sticky top-24">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <ShoppingCart /> Résumé de la commande
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-start gap-4">
-                        <Image src={event.thumbnailUrl} alt={event.title} width={80} height={45} className="rounded-md aspect-video object-cover" data-ai-hint="event poster" />
-                        <div>
-                            <h4 className="font-semibold">{event.title}</h4>
-                            <p className="text-sm text-muted-foreground">{event.category}</p>
-                        </div>
-                    </div>
-                    <Separator />
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                            <span>Billet: {selectedTicket.name}</span>
-                            <span>{price.toLocaleString('fr-FR')} XOF</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span>TVA (20%)</span>
-                            <span>{tax.toLocaleString('fr-FR')} XOF</span>
-                        </div>
-                    </div>
-                    <Separator />
-                     <div className="flex justify-between font-bold text-lg">
-                        <span>Total</span>
-                        <span>{total.toLocaleString('fr-FR')} XOF</span>
-                    </div>
-                </CardContent>
+
+        {/* Résumé de commande avec répartition */}
+        <div className="lg:col-span-1 space-y-4">
+          <Card className="sticky top-8">
+            <CardHeader>
+              <CardTitle>Résumé de la commande</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start gap-3">
+                <img 
+                  src={event.thumbnailUrl} 
+                  alt={event.title}
+                  className="w-16 h-16 rounded object-cover"
+                />
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm">{event.title}</h3>
+                  <Badge variant="outline" className="mt-1">{event.category}</Badge>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="font-medium">{selectedTicket.name}</span>
+                  <span>×{quantity}</span>
+                </div>
+                
+                <div className="flex justify-between text-sm">
+                  <span>Prix unitaire</span>
+                  <span>{selectedTicket.price.toLocaleString('fr-FR')} XOF</span>
+                </div>
+                
+                <Separator />
+                
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Total à payer</span>
+                  <span>{isFree ? 'Gratuit' : `${clientTotal.toLocaleString('fr-FR')} XOF`}</span>
+                </div>
+              </div>
+
+              {event.type === 'offline' && (
+                <div className="text-xs text-muted-foreground bg-blue-50 p-3 rounded">
+                  <p className="font-medium text-blue-800 mb-1">Événement physique</p>
+                  <p className="text-blue-700">
+                    Vos billets seront disponibles en téléchargement après {isFree ? 'confirmation' : 'paiement'}.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ✅ Nouveau : Répartition transparente */}
+          {!isFree && (
+            <Card className="bg-muted/30 border-dashed">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Info className="h-4 w-4" />
+                  Répartition transparente
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span>Promoteur reçoit</span>
+                  <span className="font-medium text-green-600">
+                    {promoterRevenue.toLocaleString('fr-FR')} XOF ({(100 - commissionRate)}%)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Commission plateforme</span>
+                  <span className="font-medium text-blue-600">
+                    {adminCommission.toLocaleString('fr-FR')} XOF ({commissionRate}%)
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex justify-between font-medium">
+                  <span>Vous payez</span>
+                  <span>{clientTotal.toLocaleString('fr-FR')} XOF</span>
+                </div>
+              </CardContent>
             </Card>
+          )}
         </div>
       </div>
     </div>

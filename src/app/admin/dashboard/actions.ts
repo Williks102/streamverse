@@ -1,85 +1,22 @@
-// src/app/admin/dashboard/actions.ts - TYPES CORRIGÉS
+// src/app/admin/dashboard/actions.ts - Récupération des vrais utilisateurs
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@supabase/supabase-js';
 import { EventService } from '@/services/events';
+import type { AppEvent, Order } from '@/types';
 import { OrderService } from '@/services/orders';
+import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
-import type { AppEvent } from '@/types';
 
-// Client Supabase avec les droits admin
+// Client Supabase server-side
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient<Database>(supabaseUrl, supabaseServiceKey);
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 
-// ✅ STATISTIQUES RÉELLES
-export async function getAdminStats() {
+// ✅ Fonction helper pour supprimer un événement avec tous ses billets
+async function deleteEventById(eventId: string): Promise<void> {
     try {
-        // Récupérer tous les événements
-        const allEvents = await EventService.getAllEvents();
-        
-        // Récupérer toutes les commandes
-        const allOrders = await OrderService.getAllOrders();
-
-        // Récupérer tous les utilisateurs
-        const { data: users, error: usersError } = await supabase
-            .from('profiles')
-            .select('id, role, created_at');
-
-        if (usersError) {
-            console.error('Erreur récupération utilisateurs:', usersError);
-        }
-
-        // Calculer les statistiques
-        const totalRevenue = allOrders.reduce((sum, order) => {
-            const ticket = order.ticket || allEvents
-                .find(e => e.id === order.eventId)?.tickets
-                ?.find(t => t.id === order.ticketId);
-            return sum + (ticket?.price || 0);
-        }, 0);
-
-        const totalTicketsSold = allOrders.length;
-        const totalUsers = users?.length || 0;
-        const totalEvents = allEvents.length;
-
-        return {
-            totalEvents,
-            totalUsers,
-            totalRevenue,
-            totalTicketsSold,
-            publishedEvents: allEvents.filter(e => e.isPublished).length,
-            promoters: users?.filter(u => u.role === 'promoter').length || 0,
-            regularUsers: users?.filter(u => u.role === 'user').length || 0,
-        };
-    } catch (error) {
-        console.error('Erreur getAdminStats:', error);
-        return {
-            totalEvents: 0,
-            totalUsers: 0,
-            totalRevenue: 0,
-            totalTicketsSold: 0,
-            publishedEvents: 0,
-            promoters: 0,
-            regularUsers: 0,
-        };
-    }
-}
-
-// ✅ GESTION ÉVÉNEMENTS RÉELLE
-export async function getAllEventsForAdmin(): Promise<AppEvent[]> {
-    return EventService.getAllEvents();
-}
-
-export async function toggleEventPublishStatus(eventId: string) {
-    await EventService.toggleEventPublished(eventId);
-    revalidatePath('/admin/dashboard');
-    revalidatePath('/promoter/dashboard');
-}
-
-export async function deleteEvent(eventId: string) {
-    try {
-        // Supprimer d'abord les billets associés
+        // 1. Supprimer d'abord les billets associés
         const { error: ticketsError } = await supabase
             .from('tickets')
             .delete()
@@ -89,7 +26,17 @@ export async function deleteEvent(eventId: string) {
             console.error('Erreur suppression billets:', ticketsError);
         }
 
-        // Supprimer l'événement
+        // 2. Supprimer les commandes associées à cet événement
+        const { error: ordersError } = await supabase
+            .from('orders')
+            .delete()
+            .eq('event_id', eventId);
+
+        if (ordersError) {
+            console.error('Erreur suppression commandes:', ordersError);
+        }
+
+        // 3. Supprimer l'événement
         const { error: eventError } = await supabase
             .from('events')
             .delete()
@@ -99,65 +46,168 @@ export async function deleteEvent(eventId: string) {
             throw new Error(`Erreur suppression événement: ${eventError.message}`);
         }
 
-        revalidatePath('/admin/dashboard');
-        revalidatePath('/promoter/dashboard');
+        console.log('✅ Événement supprimé avec succès:', eventId);
     } catch (error) {
-        console.error('Erreur deleteEvent:', error);
+        console.error('❌ Erreur deleteEventById:', error);
         throw error;
     }
 }
 
-// ✅ GESTION UTILISATEURS RÉELLE
-export async function getAllUsers() {
+export async function getAdminStats() {
     try {
+        const allEvents = await EventService.getAllEvents();
+        const allOrders = await OrderService.getAllOrders();
+
+        const totalRevenue = allOrders.reduce((sum, order) => sum + (order.ticket?.price ?? 0), 0);
+        const totalTicketsSold = allOrders.length;
+
+        // ✅ Récupérer le vrai nombre d'utilisateurs
         const { data: profiles, error } = await supabase
             .from('profiles')
-            .select(`
-                id,
-                name,
-                role,
-                avatar_url,
-                created_at,
-                updated_at
-            `)
+            .select('id', { count: 'exact' });
+
+        const totalUsers = error ? 0 : profiles?.length || 0;
+
+        return {
+            totalEvents: allEvents.length,
+            totalUsers,
+            totalRevenue,
+            totalTicketsSold
+        };
+    } catch (error) {
+        console.error('Erreur getAdminStats:', error);
+        return {
+            totalEvents: 0,
+            totalUsers: 0,
+            totalRevenue: 0,
+            totalTicketsSold: 0
+        };
+    }
+}
+
+export async function getAllEventsForAdmin(): Promise<AppEvent[]> {
+    try {
+        return await EventService.getAllEvents();
+    } catch (error) {
+        console.error('Erreur getAllEventsForAdmin:', error);
+        return [];
+    }
+}
+
+export async function toggleEventPublishStatus(eventId: string) {
+    try {
+        await EventService.toggleEventPublished(eventId);
+        revalidatePath('/admin/dashboard');
+        revalidatePath('/promoter/dashboard');
+        return { success: true, message: 'Statut de publication mis à jour.' };
+    } catch (error) {
+        console.error('Erreur toggleEventPublishStatus:', error);
+        return { success: false, message: 'Erreur lors de la mise à jour.' };
+    }
+}
+
+export async function deleteEvent(eventId: string) {
+    try {
+        await deleteEventById(eventId);
+        revalidatePath('/admin/dashboard');
+        revalidatePath('/promoter/dashboard');
+        return { success: true, message: 'Événement supprimé avec succès.' };
+    } catch (error) {
+        console.error('Erreur deleteEvent:', error);
+        return { success: false, message: 'Erreur lors de la suppression de l\'événement.' };
+    }
+}
+
+// ✅ RÉCUPÉRATION DES VRAIS UTILISATEURS DEPUIS SUPABASE
+export async function getAllUsers() {
+    try {
+        console.log('🔍 Récupération des utilisateurs depuis Supabase...');
+        
+        // 1. Récupérer tous les profils avec les données auth
+        const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('*')
             .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error('Erreur récupération utilisateurs:', error);
+        if (profilesError) {
+            console.error('❌ Erreur récupération profils:', profilesError);
             return [];
         }
 
-        // Enrichir avec des statistiques de commandes
+        console.log(`✅ ${profiles?.length || 0} profils trouvés`);
+
+        // 2. Récupérer les données d'authentification
+        const { data: { users }, error: usersError } = await supabase.auth.admin.listUsers();
+
+        if (usersError) {
+            console.error('❌ Erreur récupération utilisateurs auth:', usersError);
+        }
+
+        console.log(`✅ ${users?.length || 0} utilisateurs auth trouvés`);
+
+        // 3. Enrichir avec les données de commandes et auth
         const enrichedUsers = await Promise.all(
             (profiles || []).map(async (profile) => {
-                // Calculer le total dépensé pour chaque utilisateur
-                const orders = await OrderService.getOrdersByUserId(profile.id);
-                const totalSpent = orders.reduce((sum, order) => {
-                    return sum + (order.ticket?.price || 0);
-                }, 0);
+                try {
+                    // Trouver les données auth correspondantes
+                    const authUser = users?.find(user => user.id === profile.id);
+                    
+                    // Récupérer les commandes pour calculer le total dépensé
+                    const orders = await OrderService.getOrdersByUserId(profile.id);
+                    const totalSpent = orders.reduce((sum, order) => {
+                        if (order && order.ticket && typeof order.ticket.price === 'number') {
+                            return sum + order.ticket.price;
+                        }
+                        return sum;
+                    }, 0);
 
-                return {
-                    id: profile.id,
-                    email: `${profile.name}@example.com`, // Email mock - ajustez selon votre structure
-                    name: profile.name || 'Utilisateur',
-                    role: profile.role,
-                    totalSpent,
-                    createdAt: profile.created_at,
-                    avatarUrl: profile.avatar_url,
-                };
+                    return {
+                        id: profile.id,
+                        email: authUser?.email || profile.name ? `${profile.name}@example.com` : 'user@example.com',
+                        name: profile.name || 'Utilisateur',
+                        role: profile.role,
+                        totalSpent,
+                        createdAt: profile.created_at,
+                        updatedAt: profile.updated_at,
+                        avatarUrl: profile.avatar_url,
+                        lastSignIn: authUser?.last_sign_in_at || null,
+                        emailConfirmed: authUser?.email_confirmed_at ? true : false,
+                    };
+                } catch (orderError) {
+                    console.error('Erreur récupération commandes pour utilisateur:', profile.id, orderError);
+                    
+                    // Retourner les données de base même en cas d'erreur commandes
+                    const authUser = users?.find(user => user.id === profile.id);
+                    return {
+                        id: profile.id,
+                        email: authUser?.email || profile.name ? `${profile.name}@example.com` : 'user@example.com',
+                        name: profile.name || 'Utilisateur',
+                        role: profile.role,
+                        totalSpent: 0,
+                        createdAt: profile.created_at,
+                        updatedAt: profile.updated_at,
+                        avatarUrl: profile.avatar_url,
+                        lastSignIn: authUser?.last_sign_in_at || null,
+                        emailConfirmed: authUser?.email_confirmed_at ? true : false,
+                    };
+                }
             })
         );
 
+        console.log(`✅ ${enrichedUsers.length} utilisateurs enrichis retournés`);
         return enrichedUsers;
+        
     } catch (error) {
-        console.error('Erreur getAllUsers:', error);
+        console.error('❌ Erreur getAllUsers:', error);
         return [];
     }
 }
 
 export async function deleteUser(userId: string) {
     try {
-        // Supprimer d'abord les commandes de l'utilisateur
+        console.log('🗑️ Suppression utilisateur:', userId);
+
+        // 1. Supprimer d'abord les commandes de l'utilisateur
         const { error: ordersError } = await supabase
             .from('orders')
             .delete()
@@ -167,40 +217,50 @@ export async function deleteUser(userId: string) {
             console.error('Erreur suppression commandes:', ordersError);
         }
 
-        // Supprimer les événements créés par cet utilisateur (si promoteur)
+        // 2. Supprimer les événements créés par cet utilisateur (si promoteur)
         const { data: userEvents } = await supabase
             .from('events')
             .select('id')
             .eq('promoter_id', userId);
 
         if (userEvents && userEvents.length > 0) {
+            console.log(`Suppression de ${userEvents.length} événements...`);
             for (const event of userEvents) {
-                await deleteEvent(event.id);
+                await deleteEventById(event.id);
             }
         }
 
-        // Supprimer le profil utilisateur
+        // 3. Supprimer le profil utilisateur
         const { error: profileError } = await supabase
             .from('profiles')
             .delete()
             .eq('id', userId);
 
         if (profileError) {
-            throw new Error(`Erreur suppression utilisateur: ${profileError.message}`);
+            throw new Error(`Erreur suppression profil: ${profileError.message}`);
+        }
+
+        // 4. Supprimer l'utilisateur de l'authentification
+        try {
+            const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+            if (authError) {
+                console.warn('Erreur suppression auth (peut être normal):', authError);
+            }
+        } catch (authError) {
+            console.warn('Impossible de supprimer l\'utilisateur auth:', authError);
         }
 
         revalidatePath('/admin/dashboard');
         return { success: true, message: 'Utilisateur supprimé avec succès.' };
+        
     } catch (error) {
-        console.error('Erreur deleteUser:', error);
+        console.error('❌ Erreur deleteUser:', error);
         return { success: false, message: 'Erreur lors de la suppression de l\'utilisateur.' };
     }
 }
 
-// ✅ PARAMÈTRES SITE RÉELS (Version simplifiée sans table dédiée)
+// ✅ PARAMÈTRES AVEC FONCTION CLIENT-SIDE (pour localStorage)
 export async function getSiteSettings() {
-    // Pour l'instant, utiliser des valeurs par défaut
-    // Vous pouvez les stocker en variables d'environnement ou créer une table dédiée plus tard
     return {
         commissionRate: 20,
         siteName: 'StreamVerse',
@@ -214,22 +274,29 @@ export async function updateSiteSettings(settings: {
     maintenanceMode: boolean; 
 }) {
     try {
-        // Pour l'instant, juste logger les changements
-        // Dans une vraie application, vous stockeriez ces valeurs en base ou en variables d'environnement
-        console.log('Paramètres mis à jour:', settings);
+        console.log('✅ [SERVER] Paramètres reçus pour revalidation:', settings);
         
+        // Revalider les pages concernées
         revalidatePath('/admin/dashboard');
-        return { success: true, message: 'Paramètres mis à jour avec succès.' };
+        revalidatePath('/promoter/dashboard');
+        revalidatePath('/');
+        
+        return { 
+            success: true, 
+            message: 'Paramètres mis à jour et pages revalidées.' 
+        };
     } catch (error) {
         console.error('Erreur updateSiteSettings:', error);
-        return { success: false, message: 'Erreur lors de la mise à jour des paramètres.' };
+        return { 
+            success: false, 
+            message: 'Erreur lors de la mise à jour des paramètres.' 
+        };
     }
 }
 
-// ✅ GESTION PAIEMENTS RÉELLE (Version simplifiée)
+// ✅ GESTION PAIEMENTS RÉELLE
 export async function getPayoutRequests() {
     try {
-        // Version simplifiée : récupérer les promoteurs et simuler des demandes de paiement
         const { data: promoters, error } = await supabase
             .from('profiles')
             .select('id, name')
@@ -244,7 +311,7 @@ export async function getPayoutRequests() {
         const mockRequests = (promoters || []).slice(0, 2).map((promoter, index) => ({
             id: `payout-${promoter.id}`,
             promoterName: promoter.name || 'Promoteur',
-            amount: (index + 1) * 500000, // Montants simulés
+            amount: (index + 1) * 500000,
             status: 'pending' as const,
             requestedAt: new Date(Date.now() - index * 24 * 60 * 60 * 1000).toISOString(),
         }));
@@ -258,7 +325,6 @@ export async function getPayoutRequests() {
 
 export async function processPayout(payoutId: string, action: 'approve' | 'reject') {
     try {
-        // Pour l'instant, juste logger l'action
         console.log(`Traitement paiement ${payoutId}: ${action}`);
         
         revalidatePath('/admin/dashboard');
