@@ -1,4 +1,4 @@
-
+// src/types/index.ts - TYPES CORRIGÉS ET UNIFIÉS
 // Interface principale pour les événements
 export interface AppEvent {
   id: string;
@@ -10,7 +10,6 @@ export interface AppEvent {
   type: 'live' | 'vod' | 'offline';
   isPublished: boolean;
   status: 'live' | 'upcoming' | 'ended' | 'recorded' | 'scheduled' | 'available';
-  // ✅ CORRECTION : Ajout de | null pour compatibilité Supabase
   startTime?: string | null;
   duration?: string | null;
   videoSrc?: string | null;
@@ -21,12 +20,16 @@ export interface AppEvent {
   promoterInfo?: PromoterInfo | null;
 }
 
-// Interface pour les billets
+// ✅ Interface unifiée pour les billets
 export interface Ticket {
   id: string;
   name: string;
   price: number; // Prix en centimes (XOF)
+  created_at?: string;
 }
+
+// ✅ Alias pour compatibilité avec l'ancien code
+export type TicketType = Ticket;
 
 // Interface pour les informations du promoteur
 export interface PromoterInfo {
@@ -96,6 +99,18 @@ export interface PaginatedResponse<T> {
     total: number;
     totalPages: number;
   };
+}
+
+// Types pour les commandes
+export interface Order {
+  id: string;
+  userId: string;
+  eventId: string;
+  ticketId: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  createdAt: string;
+  event?: AppEvent;
+  ticket?: Ticket;
 }
 
 // Types pour les actions sur les événements

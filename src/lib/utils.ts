@@ -1,12 +1,14 @@
+// src/lib/utils.ts - CORRIGÉ POUR UTILISER LE BON TYPE
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import type { TicketType } from "@/types";
+import type { Ticket } from "@/types"; // ✅ Utiliser Ticket au lieu de TicketType
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function getLowestPrice(tickets: TicketType[]): number {
+// ✅ CORRIGÉ : Utiliser Ticket[] au lieu de TicketType[]
+export function getLowestPrice(tickets: Ticket[]): number {
   if (!tickets || tickets.length === 0) {
     return 0;
   }

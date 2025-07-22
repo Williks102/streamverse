@@ -1,4 +1,4 @@
-
+// src/app/events/[id]/confirmation/page.tsx - CORRECTION FINALE
 import { getEventById } from '@/lib/data';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -7,20 +7,25 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, Home, Video } from 'lucide-react';
 import { getLowestPrice } from '@/lib/utils';
+import type { Ticket } from '@/types'; // ✅ Import du bon type
 
 interface ConfirmationPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function ConfirmationPage({ params }: ConfirmationPageProps) {
-  const event = await getEventById(params.id);
+  const resolvedParams = await params;
+  const event = await getEventById(resolvedParams.id);
 
   if (!event) {
     notFound();
   }
   
   const eventLink = event.type === 'live' ? `/live/${event.id}` : `/vod/${event.id}`;
-  const lowestPrice = getLowestPrice(event.tickets);
+  
+  // ✅ CORRIGÉ : Utiliser le bon type et gérer le cas où tickets est undefined
+  const tickets: Ticket[] = event.tickets || [];
+  const lowestPrice = getLowestPrice(tickets);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -45,7 +50,9 @@ export default async function ConfirmationPage({ params }: ConfirmationPageProps
             <div className="text-center">
                 <h3 className="font-bold text-xl">{event.title}</h3>
                 <p className="text-muted-foreground">{event.category}</p>
-                <p className="font-semibold text-primary mt-1">À partir de {lowestPrice.toLocaleString('fr-FR')} XOF</p>
+                <p className="font-semibold text-primary mt-1">
+                  À partir de {lowestPrice.toLocaleString('fr-FR')} XOF
+                </p>
             </div>
           </div>
           <p className="text-sm text-muted-foreground">

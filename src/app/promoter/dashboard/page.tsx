@@ -1,31 +1,33 @@
-// src/app/promoter/dashboard/page.tsx - AVEC AUTH CLIENT
+// src/app/promoter/dashboard/page.tsx - VERSION NETTOYÉE
 "use client";
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import EventCard from '@/components/EventCard';
 import type { AppEvent } from '@/types';
-import { PlusCircle, QrCode, BarChart3 } from 'lucide-react';
+import { PlusCircle, QrCode, BarChart3, LogOut, User } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { togglePublishAction } from './actions';
-import { testSimpleAction } from '../events/new/actions'; // ✅ Action de test simple
-import { useAuthClient } from '@/hooks/useAuthClient'; // ✅ Nouveau hook
-import {useEffect, useState, useTransition} from 'react';
+import { useAuthClient } from '@/hooks/useAuthClient';
+import { useEffect, useState, useTransition } from 'react';
 import { getAllEvents } from '@/lib/data';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import PromoterStats from '@/components/PromoterStats';
+import { useRouter } from 'next/navigation';
 
 export default function PromoterDashboardPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   
-  // ✅ Utiliser le hook d'authentification côté client
   const auth = useAuthClient();
 
   useEffect(() => {
@@ -47,46 +49,18 @@ export default function PromoterDashboardPage() {
     fetchEvents();
   }, [toast]);
 
-  // ✅ Test d'authentification client
-  const testAuth = async () => {
+  const handleSignOut = async () => {
     try {
-      console.log('🧪 Début test authentification client...');
-      const result = await auth.testAuth();
-      console.log('🧪 Résultat test auth client:', result);
-      
+      await auth.signOut();
       toast({
-        title: result.success ? "✅ Auth Client OK" : "❌ Auth Client Failed",
-        description: result.success 
-          ? `Connecté: ${result.user?.email} | Profil: ${result.profile?.name} (${result.profile?.role})` 
-          : `Erreur: ${result.error}`,
-        variant: result.success ? "default" : "destructive"
+        title: "Déconnexion réussie",
+        description: "Vous avez été déconnecté avec succès.",
       });
+      router.push('/auth/login');
     } catch (error) {
-      console.error('🧪 Erreur test auth client:', error);
       toast({
-        title: "❌ Erreur de test",
-        description: "Impossible de tester l'authentification",
-        variant: "destructive"
-      });
-    }
-  };
-
-  // ✅ Test d'action serveur simple
-  const testServerAction = async () => {
-    try {
-      console.log('🧪 Test action serveur simple...');
-      const result = await testSimpleAction();
-      console.log('🧪 Résultat action serveur:', result);
-      
-      toast({
-        title: "✅ Action Serveur OK",
-        description: `${result.message} | ${result.timestamp}`,
-      });
-    } catch (error) {
-      console.error('🧪 Erreur action serveur:', error);
-      toast({
-        title: "❌ Action Serveur Failed",
-        description: "Erreur lors du test de l'action serveur",
+        title: "Erreur de déconnexion",
+        description: "Une erreur est survenue lors de la déconnexion.",
         variant: "destructive"
       });
     }
@@ -155,7 +129,6 @@ export default function PromoterDashboardPage() {
     </section>
   );
 
-  // ✅ Affichage de loading pendant l'authentification
   if (auth.isLoading || isLoading) {
     return (
       <div className="space-y-8">
@@ -169,53 +142,68 @@ export default function PromoterDashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* ✅ Status d'authentification */}
-      {auth.isAuthenticated && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <h3 className="text-lg font-semibold text-green-800">✅ Authentifié</h3>
-          <p className="text-green-700">
-            Connecté en tant que : <strong>{auth.profile?.name || auth.user?.email}</strong> ({auth.profile?.role})
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-col items-center sm:flex-row sm:justify-between sm:items-center gap-4 text-center">
+      <div className="flex flex-col items-center sm:flex-row sm:justify-between sm:items-center gap-4">
         <h1 className="text-3xl font-bold text-primary">Tableau de Bord Promoteur</h1>
         
-        {/* ✅ Zone des boutons avec les boutons de test */}
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          {/* ✅ Boutons de test */}
-          <div className="flex gap-2">
-            <Button 
-              onClick={testAuth} 
-              variant="outline" 
-              size="sm"
-              className="bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
-            >
-              🧪 Test Client
+        <div className="flex items-center gap-4">
+          {/* Boutons d'action */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button asChild variant="outline">
+              <Link href="/promoter/scanner">
+                <QrCode className="mr-2 h-5 w-5" /> Scanner un Billet
+              </Link>
             </Button>
             
-            <Button 
-              onClick={testServerAction} 
-              variant="outline" 
-              size="sm"
-              className="bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100"
-            >
-              🧪 Test Serveur
+            <Button asChild>
+              <Link href="/promoter/events/new">
+                <PlusCircle className="mr-2 h-5 w-5" /> Créer un événement
+              </Link>
             </Button>
           </div>
-          
-          <Button asChild variant="outline">
-            <Link href="/promoter/scanner">
-              <QrCode className="mr-2 h-5 w-5" /> Scanner un Billet
-            </Link>
-          </Button>
-          
-          <Button asChild>
-            <Link href="/promoter/events/new">
-              <PlusCircle className="mr-2 h-5 w-5" /> Créer un événement
-            </Link>
-          </Button>
+
+          {/* Menu utilisateur avec déconnexion */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="relative h-10 w-10 rounded-full p-0">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage 
+                    src={auth.profile?.avatar_url || undefined} 
+                    alt={auth.profile?.name || auth.user?.email || "User"} 
+                  />
+                  <AvatarFallback>
+                    {auth.profile?.name?.charAt(0) || auth.user?.email?.charAt(0) || "U"}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end">
+              <div className="flex items-center justify-start gap-2 p-2">
+                <div className="flex flex-col space-y-1 leading-none">
+                  <p className="font-medium text-sm">
+                    {auth.profile?.name || "Promoteur"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {auth.user?.email}
+                  </p>
+                </div>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/account" className="cursor-pointer">
+                  <User className="mr-2 h-4 w-4" />
+                  Mon Profil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={handleSignOut}
+                className="cursor-pointer text-red-600 focus:text-red-600"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Se déconnecter
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       
@@ -223,7 +211,7 @@ export default function PromoterDashboardPage() {
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="events">Mes Événements</TabsTrigger>
           <TabsTrigger value="stats">
-            <BarChart3 className="mr-2 h-4 w-4"/>Statistiques & Simulation
+            <BarChart3 className="mr-2 h-4 w-4"/>Statistiques
           </TabsTrigger>
         </TabsList>
         
