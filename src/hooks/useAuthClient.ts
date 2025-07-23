@@ -1,8 +1,8 @@
-// src/hooks/useAuthClient.ts - Hook d'authentification corrigé
+// src/hooks/useAuthClient.ts - Hook avec instance unique
 "use client";
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase'; // ✅ Import de l'instance unique
 import type { Database } from '@/types/database';
 import type { User, Session } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
@@ -38,6 +38,8 @@ export function useAuthClient() {
 
   const router = useRouter();
   const { toast } = useToast();
+  
+  // ✅ Utiliser l'instance unique
   const supabase = createClient();
 
   // ✅ Fonction pour récupérer le profil utilisateur
@@ -93,7 +95,7 @@ export function useAuthClient() {
     }
   };
 
-  // ✅ Fonction de connexion - sans refreshProfile
+  // ✅ Fonction de connexion
   const signIn = async (credentials: { email: string; password: string }) => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
@@ -142,7 +144,7 @@ export function useAuthClient() {
     }
   };
 
-  // ✅ Fonction d'inscription - sans refreshProfile
+  // ✅ Fonction d'inscription
   const signUp = async (credentials: { email: string; password: string; name?: string }) => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
@@ -230,6 +232,22 @@ export function useAuthClient() {
     } catch (error) {
       console.error('❌ [REFRESH PROFILE] Erreur:', error);
     }
+  };
+
+  // ✅ Fonction pour obtenir les infos utilisateur
+  const getUserInfoForServerAction = () => {
+    if (!state.user || !state.profile) {
+      throw new Error('Utilisateur non authentifié');
+    }
+
+    return {
+      id: state.user.id,
+      email: state.user.email || '',
+      profileId: state.profile.id,
+      profileName: state.profile.name || '',
+      profileRole: state.profile.role,
+      avatarUrl: state.profile.avatar_url || undefined,
+    };
   };
 
   // Initialiser l'état de l'authentification
@@ -324,6 +342,7 @@ export function useAuthClient() {
     signIn,
     signUp,
     signOut,
-    refreshUserProfile, // ✅ Remplace refreshProfile
+    refreshUserProfile,
+    getUserInfoForServerAction,
   };
 }

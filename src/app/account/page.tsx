@@ -1,12 +1,11 @@
-// src/app/account/page.tsx - Dashboard acheteur avec données réelles
+// src/app/account/page.tsx - Page de compte avec instance unique
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,23 +19,21 @@ import {
   Calendar,
   Ticket,
   ShoppingBag,
-  TrendingUp,
   LogOut,
   Eye
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { createClient } from '@/lib/supabase';
-import { OrderService } from '@/services/orders'; // ✅ Utiliser le vrai service
-import type { Order } from '@/types'; // ✅ Utiliser le vrai type
-
-const supabase = createClient();
+import { createClient } from '@/lib/supabase'; // ✅ Import de l'instance unique
+import { OrderService } from '@/services/orders';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import type { Order } from '@/types';
 
 interface UserData {
   id: string;
   email: string;
-  name: string;
-  role: 'admin' | 'promoter' | 'user';
-  avatar_url?: string;
+  name: string | null;
+  role: 'user' | 'promoter' | 'admin';
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,8 +42,11 @@ export default function AccountPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [userData, setUserData] = useState<UserData | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]); // ✅ Utiliser le vrai type Order
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // ✅ Utiliser l'instance unique
+  const supabase = createClient();
 
   useEffect(() => {
     loadUserData();
@@ -227,7 +227,7 @@ export default function AccountPage() {
             <User className="h-8 w-8 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold">Bonjour, {userData.name}</h1>
+            <h1 className="text-3xl font-bold">Bonjour, {userData.name || 'Utilisateur'}</h1>
             <div className="flex items-center gap-2 mt-1">
               <Badge className={roleInfo.color}>
                 <RoleIcon className="mr-1 h-3 w-3" />
@@ -437,7 +437,7 @@ export default function AccountPage() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="name">Nom</Label>
-                <Input id="name" defaultValue={userData.name} />
+                <Input id="name" defaultValue={userData.name || ''} />
               </div>
               
               <div className="space-y-2">

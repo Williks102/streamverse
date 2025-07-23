@@ -1,4 +1,4 @@
-// src/components/AccountSettings.tsx - AVEC VRAIES DONNÉES
+// src/components/AccountSettings.tsx - Composant avec instance unique
 "use client";
 
 import { useState, useTransition } from 'react';
@@ -11,13 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { User, KeyRound, Loader2, Save } from "lucide-react";
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/database';
-
-// Client Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+import { createClient } from '@/lib/supabase'; // ✅ Import de l'instance unique
 
 const profileSchema = z.object({
   name: z.string().min(1, { message: "Le nom est requis." }),
@@ -51,6 +45,9 @@ interface AccountSettingsProps {
 export default function AccountSettings({ userData, onUserDataUpdate }: AccountSettingsProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
+  
+  // ✅ Utiliser l'instance unique
+  const supabase = createClient();
 
   // Formulaire profil avec données réelles
   const profileForm = useForm<z.infer<typeof profileSchema>>({
@@ -77,7 +74,7 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
       try {
         console.log('🔄 Mise à jour profil:', values);
 
-        // 1. Mettre à jour le profil dans la table profiles
+        // 1. Mettre à jour le profil dans Supabase
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
@@ -90,19 +87,15 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
           throw new Error(`Erreur mise à jour profil: ${profileError.message}`);
         }
 
-        // 2. Mettre à jour l'email dans auth (si différent)
+        // 2. Mettre à jour l'email si nécessaire (optionnel)
         if (values.email !== userData.email) {
           const { error: emailError } = await supabase.auth.updateUser({
             email: values.email
           });
 
           if (emailError) {
-            console.warn('Erreur mise à jour email:', emailError);
-            toast({
-              title: "Attention",
-              description: "Le profil a été mis à jour, mais l'email nécessite une confirmation.",
-              variant: "default"
-            });
+            console.warn('⚠️ Erreur mise à jour email:', emailError);
+            // Ne pas bloquer pour l'email, continuer
           }
         }
 
@@ -117,16 +110,18 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
         onUserDataUpdate(updatedUserData);
 
         toast({
-          title: "Succès",
-          description: "Votre profil a été mis à jour avec succès.",
+          title: "Profil mis à jour",
+          description: "Vos informations ont été sauvegardées avec succès.",
         });
+
+        console.log('✅ Profil mis à jour avec succès');
 
       } catch (error) {
         console.error('❌ Erreur mise à jour profil:', error);
         toast({
           title: "Erreur",
-          description: error instanceof Error ? error.message : "Erreur lors de la mise à jour.",
-          variant: "destructive",
+          description: error instanceof Error ? error.message : "Impossible de mettre à jour le profil.",
+          variant: "destructive"
         });
       }
     });
@@ -136,21 +131,16 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
   const onPasswordSubmit = (values: z.infer<typeof passwordSchema>) => {
     startTransition(async () => {
       try {
-        console.log('🔒 Mise à jour mot de passe...');
+        console.log('🔄 Mise à jour mot de passe...');
 
-        // Vérifier d'abord le mot de passe actuel en tentant une connexion
+        // Vérifier le mot de passe actuel en tentant une connexion
         const { error: verifyError } = await supabase.auth.signInWithPassword({
           email: userData.email,
           password: values.currentPassword,
         });
 
         if (verifyError) {
-          toast({
-            title: "Erreur",
-            description: "Le mot de passe actuel est incorrect.",
-            variant: "destructive",
-          });
-          return;
+          throw new Error("Le mot de passe actuel est incorrect.");
         }
 
         // Mettre à jour le mot de passe
@@ -162,19 +152,22 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
           throw new Error(`Erreur mise à jour mot de passe: ${updateError.message}`);
         }
 
+        // Réinitialiser le formulaire
+        passwordForm.reset();
+
         toast({
-          title: "Succès",
-          description: "Votre mot de passe a été mis à jour avec succès.",
+          title: "Mot de passe mis à jour",
+          description: "Votre mot de passe a été modifié avec succès.",
         });
 
-        passwordForm.reset();
+        console.log('✅ Mot de passe mis à jour avec succès');
 
       } catch (error) {
         console.error('❌ Erreur mise à jour mot de passe:', error);
         toast({
           title: "Erreur",
-          description: error instanceof Error ? error.message : "Erreur lors de la mise à jour.",
-          variant: "destructive",
+          description: error instanceof Error ? error.message : "Impossible de mettre à jour le mot de passe.",
+          variant: "destructive"
         });
       }
     });
@@ -182,7 +175,7 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
 
   return (
     <div className="space-y-6">
-      {/* Informations du profil */}
+      {/* Formulaire de profil */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -190,7 +183,7 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
             Informations du Profil
           </CardTitle>
           <CardDescription>
-            Modifiez vos informations personnelles.
+            Modifiez vos informations personnelles
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -203,7 +196,7 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
                   <FormItem>
                     <FormLabel>Nom complet</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Votre nom complet" />
+                      <Input placeholder="Votre nom" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -217,7 +210,81 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
                   <FormItem>
                     <FormLabel>Adresse e-mail</FormLabel>
                     <FormControl>
-                      <Input {...field} type="email" placeholder="votre@email.com" />
+                      <Input type="email" placeholder="votre@email.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Button type="submit" disabled={isPending}>
+                {isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sauvegarde...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Sauvegarder
+                  </>
+                )}
+              </Button>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      {/* Formulaire de mot de passe */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5" />
+            Modifier le Mot de Passe
+          </CardTitle>
+          <CardDescription>
+            Changez votre mot de passe de connexion
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...passwordForm}>
+            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+              <FormField
+                control={passwordForm.control}
+                name="currentPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mot de passe actuel</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="newPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nouveau mot de passe</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirmer le nouveau mot de passe</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -232,80 +299,6 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
                   </>
                 ) : (
                   <>
-                    <Save className="mr-2 h-4 w-4" />
-                    Sauvegarder les modifications
-                  </>
-                )}
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-
-      {/* Sécurité - Mot de passe */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="h-5 w-5" />
-            Sécurité
-          </CardTitle>
-          <CardDescription>
-            Modifiez votre mot de passe pour sécuriser votre compte.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...passwordForm}>
-            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-              <FormField
-                control={passwordForm.control}
-                name="currentPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mot de passe actuel</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" placeholder="••••••••" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={passwordForm.control}
-                name="newPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nouveau mot de passe</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" placeholder="••••••••" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={passwordForm.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Confirmer le nouveau mot de passe</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" placeholder="••••••••" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <Button type="submit" disabled={isPending} variant="outline">
-                {isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Mise à jour...
-                  </>
-                ) : (
-                  <>
                     <KeyRound className="mr-2 h-4 w-4" />
                     Changer le mot de passe
                   </>
@@ -313,44 +306,6 @@ export default function AccountSettings({ userData, onUserDataUpdate }: AccountS
               </Button>
             </form>
           </Form>
-        </CardContent>
-      </Card>
-
-      {/* Informations du compte */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Informations du compte</CardTitle>
-          <CardDescription>Détails de votre compte StreamVerse</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex justify-between items-center py-2">
-            <span className="text-sm font-medium">ID utilisateur :</span>
-            <span className="text-sm text-muted-foreground font-mono">{userData.id}</span>
-          </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-sm font-medium">Type de compte :</span>
-            <span className="text-sm text-muted-foreground capitalize">{userData.role}</span>
-          </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-sm font-medium">Membre depuis :</span>
-            <span className="text-sm text-muted-foreground">
-              {new Date(userData.created_at).toLocaleDateString('fr-FR', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </span>
-          </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-sm font-medium">Dernière mise à jour :</span>
-            <span className="text-sm text-muted-foreground">
-              {new Date(userData.updated_at).toLocaleDateString('fr-FR', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </span>
-          </div>
         </CardContent>
       </Card>
     </div>
