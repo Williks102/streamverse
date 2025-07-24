@@ -1,0 +1,121 @@
+// next.config.js - CONFIGURATION POUR CORRIGER LES ERREURS 403
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+    // ✅ Configuration pour les fichiers statiques
+    assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
+    
+    // ✅ Configuration des en-têtes pour autoriser l'accès aux ressources
+    async headers() {
+      return [
+        {
+          // Appliquer ces en-têtes à tous les fichiers statiques
+          source: '/_next/static/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'public, max-age=31536000, immutable',
+            },
+            {
+              key: 'Access-Control-Allow-Origin',
+              value: '*',
+            },
+            {
+              key: 'Access-Control-Allow-Methods',
+              value: 'GET, HEAD, OPTIONS',
+            },
+          ],
+        },
+        {
+          // Appliquer aux fichiers media
+          source: '/_next/static/media/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'public, max-age=31536000, immutable',
+            },
+            {
+              key: 'Access-Control-Allow-Origin',
+              value: '*',
+            },
+          ],
+        },
+      ];
+    },
+  
+    // ✅ Configuration des réécritures pour gérer les fichiers statiques
+    async rewrites() {
+      return [
+        // Pas de réécriture nécessaire pour les fichiers statiques locaux
+      ];
+    },
+  
+    // ✅ Configuration des images
+    images: {
+      domains: [
+        'localhost',
+        '*.supabase.co',
+        'placehold.co',
+        // Ajoutez vos domaines d'images ici
+      ],
+      remotePatterns: [
+        {
+          protocol: 'https',
+          hostname: '**.supabase.co',
+        },
+        {
+          protocol: 'https',
+          hostname: 'placehold.co',
+        },
+      ],
+    },
+  
+    // ✅ Configuration pour éviter les problèmes CORS
+    async redirects() {
+      return [];
+    },
+  
+    // ✅ Configuration webpack pour les fichiers statiques
+    webpack: (config, { isServer }) => {
+      // Configuration pour les fichiers media
+      config.module.rules.push({
+        test: /\.(woff|woff2|eot|ttf|otf)$/,
+        use: {
+          loader: 'file-loader',
+          options: {
+            publicPath: '/_next/static/fonts/',
+            outputPath: `${isServer ? '../' : ''}static/fonts/`,
+          },
+        },
+      });
+  
+      return config;
+    },
+  
+    // ✅ Configuration pour les variables d'environnement
+    env: {
+      CUSTOM_KEY: process.env.CUSTOM_KEY,
+    },
+  
+    // ✅ Configuration pour éviter les erreurs de build
+    eslint: {
+      // Attention: Ceci désactive ESLint pendant le build
+      // Utilisez seulement si vous avez des erreurs bloquantes
+      // ignoreDuringBuilds: true,
+    },
+    
+    typescript: {
+      // Attention: Ceci désactive la vérification TypeScript pendant le build
+      // Utilisez seulement si vous avez des erreurs bloquantes
+      // ignoreBuildErrors: true,
+    },
+  
+    // ✅ Configuration pour le mode strict
+    reactStrictMode: true,
+  
+    // ✅ Configuration pour les domaines de confiance
+    experimental: {
+      // Fonctionnalités expérimentales si nécessaire
+    },
+  };
+  
+  module.exports = nextConfig;

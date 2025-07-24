@@ -1,472 +1,413 @@
-// src/app/account/page.tsx - Page de compte avec instance unique
+// src/app/account/page.tsx - CORRECTIONS TYPESCRIPT FINALES
 "use client";
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { 
-  User, 
-  Shield, 
-  Briefcase, 
-  Settings, 
-  AlertTriangle,
-  Calendar,
-  Ticket,
-  ShoppingBag,
-  LogOut,
-  Eye
-} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { createClient } from '@/lib/supabase'; // ✅ Import de l'instance unique
-import { OrderService } from '@/services/orders';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import type { Order } from '@/types';
+import { Loader2, User, Package, Settings, LogOut, Calendar, MapPin } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database';
+import type { Order, OrderStatus } from '@/types'; // ✅ Import du type OrderStatus
+import { getUserOrders, getUserProfile } from './actions';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 
 interface UserData {
   id: string;
   email: string;
-  name: string | null;
-  role: 'user' | 'promoter' | 'admin';
-  avatar_url: string | null;
+  name: string;
+  role: string;
+  avatar_url?: string;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export default function AccountPage() {
-  const router = useRouter();
-  const { toast } = useToast();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  
+  const router = useRouter();
+  const { toast } = useToast();
 
-  // ✅ Utiliser l'instance unique
-  const supabase = createClient();
+  // ✅ CORRECTION : Fonction helper pour vérifier le statut de commande
+  const isConfirmedOrder = (status: string): boolean => {
+    // Utilisation d'une comparaison stricte avec le bon type
+    return status === 'completed' || status === 'confirmed';
+  };
 
-  useEffect(() => {
-    loadUserData();
-  }, []);
-
+  // ✅ FONCTION CORRIGÉE - Chargement des données utilisateur réelles
   const loadUserData = async () => {
     try {
-      // 1. Vérifier la session
+      console.log('🔄 [ACCOUNT PAGE] Chargement des données utilisateur...');
+      
+      // 1. Vérifier la session côté client
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session?.user) {
-        console.error('❌ Pas de session:', sessionError);
+        console.error('❌ [ACCOUNT PAGE] Pas de session:', sessionError);
         toast({
           title: "Accès refusé",
           description: "Vous devez être connecté pour accéder à cette page",
           variant: "destructive"
         });
-        router.push('/auth/login');
+        router.push('/auth/login?returnUrl=/account');
         return;
       }
 
-      console.log('✅ Session trouvée pour:', session.user.email);
+      console.log('✅ [ACCOUNT PAGE] Session trouvée pour:', session.user.email);
 
-      // 2. Récupérer le profil utilisateur
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-
-      if (profileError) {
-        console.error('❌ Erreur profil:', profileError);
+      // 2. Récupérer le profil utilisateur via l'action server
+      const profileResult = await getUserProfile();
+      
+      if (!profileResult.success || !profileResult.data) {
+        console.error('❌ [ACCOUNT PAGE] Erreur profil:', profileResult.message);
         toast({
           title: "Erreur",
-          description: "Impossible de charger votre profil",
+          description: profileResult.message || "Impossible de charger votre profil",
           variant: "destructive"
         });
-        return;
+        
+        // Si le profil n'existe pas, rediriger vers une page de création ou d'erreur
+        if (profileResult.message?.includes('introuvable')) {
+          router.push('/auth/login');
+          return;
+        }
+      } else {
+        // Construire les données utilisateur à partir du profil
+        const user: UserData = {
+          id: profileResult.data.id,
+          email: profileResult.data.email,
+          name: profileResult.data.name,
+          role: profileResult.data.role,
+          created_at: profileResult.data.created_at,
+          updated_at: profileResult.data.updated_at,
+        };
+
+        setUserData(user);
+        console.log('👤 [ACCOUNT PAGE] Profil chargé:', user);
       }
 
-      const user: UserData = {
-        id: profile.id,
-        email: session.user.email || '',
-        name: profile.name,
-        role: profile.role,
-        avatar_url: profile.avatar_url,
-        created_at: profile.created_at,
-        updated_at: profile.updated_at,
-      };
-
-      setUserData(user);
-      console.log('👤 Profil chargé:', user);
-
-      // ✅ 3. Charger les VRAIES commandes utilisateur
-      if (profile.role === 'user') {
-        await loadUserOrders(session.user.id);
+      // 3. Charger les commandes utilisateur pour les utilisateurs normaux
+      if (profileResult.data?.role === 'user') {
+        await loadUserOrdersReal();
       }
 
     } catch (error) {
-      console.error('❌ Erreur chargement données:', error);
+      console.error('❌ [ACCOUNT PAGE] Erreur chargement données:', error);
       toast({
         title: "Erreur",
         description: "Impossible de charger vos données",
         variant: "destructive"
       });
+      
+      // En cas d'erreur grave, rediriger vers login
+      router.push('/auth/login');
+      
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ✅ CORRECTION : Charger les vraies commandes depuis OrderService
-  const loadUserOrders = async (userId: string) => {
+  // ✅ FONCTION CORRIGÉE - Chargement des vraies commandes utilisateur
+  const loadUserOrdersReal = async () => {
     try {
-      console.log('🔍 Chargement des commandes réelles pour:', userId);
+      setOrdersLoading(true);
+      console.log('🔍 [ACCOUNT PAGE] Chargement des commandes réelles...');
       
-      // Utiliser le vrai service de commandes
-      const userOrders = await OrderService.getOrdersByUserId(userId);
+      // Utiliser la nouvelle action sans mock ID  
+      const userOrders = await getUserOrders();
       
-      console.log(`✅ ${userOrders.length} commandes trouvées`);
+      console.log(`✅ [ACCOUNT PAGE] ${userOrders.length} commandes trouvées`);
       setOrders(userOrders);
       
     } catch (error) {
-      console.error('❌ Erreur chargement commandes:', error);
+      console.error('❌ [ACCOUNT PAGE] Erreur chargement commandes:', error);
+      
+      // Afficher un message d'erreur mais ne pas bloquer la page
       toast({
         title: "Erreur",
-        description: "Impossible de charger vos commandes",
+        description: "Impossible de charger vos commandes. Vous pouvez réessayer plus tard.",
         variant: "destructive"
       });
-      // En cas d'erreur, laisser un tableau vide plutôt que des données simulées
+      
+      // Définir un tableau vide pour éviter les erreurs d'affichage
       setOrders([]);
+      
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
+  // Fonction de déconnexion
   const handleSignOut = async () => {
     try {
-      await supabase.auth.signOut();
+      console.log('🔓 [ACCOUNT PAGE] Déconnexion...');
+      
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('❌ [ACCOUNT PAGE] Erreur déconnexion:', error);
+        toast({
+          title: "Erreur de déconnexion",
+          description: error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      console.log('✅ [ACCOUNT PAGE] Déconnexion réussie');
+      
       toast({
         title: "Déconnexion réussie",
-        description: "Vous avez été déconnecté avec succès",
+        description: "À bientôt !",
       });
+      
       router.push('/');
+      
     } catch (error) {
+      console.error('❌ [ACCOUNT PAGE] Exception déconnexion:', error);
       toast({
         title: "Erreur",
-        description: "Erreur lors de la déconnexion",
+        description: "Une erreur s'est produite lors de la déconnexion",
         variant: "destructive"
       });
     }
   };
 
-  const getRoleInfo = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return {
-          label: 'Administrateur',
-          icon: Shield,
-          color: 'bg-red-100 text-red-800',
-          description: 'Accès complet à toutes les fonctionnalités'
-        };
-      case 'promoter':
-        return {
-          label: 'Promoteur',
-          icon: Briefcase,
-          color: 'bg-blue-100 text-blue-800',
-          description: 'Peut créer et gérer des événements'
-        };
-      case 'user':
-      default:
-        return {
-          label: 'Utilisateur',
-          icon: User,
-          color: 'bg-green-100 text-green-800',
-          description: 'Peut acheter des billets et participer aux événements'
-        };
-    }
-  };
+  // Charger les données au montage du composant
+  useEffect(() => {
+    loadUserData();
+  }, []);
 
-  // ✅ Calculer les vraies statistiques depuis les commandes réelles
-  const userStats = {
-    totalOrders: orders.length,
-    totalSpent: orders.reduce((sum, order) => sum + (order.ticket?.price || 0), 0),
-    eventsAttended: new Set(orders.map(o => o.eventId)).size,
-  };
-
+  // Affichage du loader pendant le chargement initial
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p>Chargement de votre compte...</p>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p className="text-muted-foreground">Chargement de votre compte...</p>
+          </div>
         </div>
       </div>
     );
   }
 
+  // Affichage d'erreur si pas de données utilisateur
   if (!userData) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Alert className="max-w-md border-red-200 bg-red-50">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            Impossible de charger vos informations. Veuillez vous reconnecter.
-          </AlertDescription>
-        </Alert>
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="mb-4">
+            <User className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-2xl font-bold mb-2">Erreur de chargement</h2>
+            <p className="text-muted-foreground mb-4">
+              Impossible de charger les informations de votre compte.
+            </p>
+            <Button onClick={() => window.location.reload()}>
+              Réessayer
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
 
-  const roleInfo = getRoleInfo(userData.role);
-  const RoleIcon = roleInfo.icon;
-
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* En-tête avec informations utilisateur */}
+    <div className="container mx-auto px-4 py-8">
+      {/* En-tête du compte */}
       <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-            <User className="h-8 w-8 text-primary" />
+        <div className="flex items-center space-x-4">
+          <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center">
+            <User className="h-8 w-8 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold">Bonjour, {userData.name || 'Utilisateur'}</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge className={roleInfo.color}>
-                <RoleIcon className="mr-1 h-3 w-3" />
-                {roleInfo.label}
-              </Badge>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-sm text-muted-foreground">{userData.email}</span>
-            </div>
+            <h1 className="text-3xl font-bold">Bonjour, {userData.name}</h1>
+            <p className="text-muted-foreground">{userData.email}</p>
+            <Badge variant={userData.role === 'admin' ? 'default' : 'secondary'}>
+              {userData.role === 'admin' ? 'Administrateur' : 
+               userData.role === 'promoter' ? 'Promoteur' : 'Utilisateur'}
+            </Badge>
           </div>
         </div>
-        <Button variant="outline" onClick={handleSignOut}>
-          <LogOut className="mr-2 h-4 w-4" />
+        <Button 
+          variant="outline" 
+          onClick={handleSignOut}
+          className="flex items-center gap-2"
+        >
+          <LogOut className="h-4 w-4" />
           Se déconnecter
         </Button>
       </div>
 
-      {/* Alerte pour les rôles avancés */}
-      {(userData.role === 'admin' || userData.role === 'promoter') && (
-        <Alert className="mb-6 border-blue-200 bg-blue-50">
-          <RoleIcon className="h-4 w-4" />
-          <AlertDescription>
-            <div className="flex items-center justify-between">
-              <span>
-                Vous avez accès aux fonctionnalités avancées en tant que <strong>{roleInfo.label}</strong>.
-              </span>
-              <div className="flex gap-2">
-                {userData.role === 'admin' && (
-                  <Button size="sm" asChild>
-                    <a href="/admin/dashboard">Dashboard Admin</a>
-                  </Button>
-                )}
-                {(userData.role === 'promoter' || userData.role === 'admin') && (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href="/promoter/dashboard">Dashboard Promoteur</a>
-                  </Button>
-                )}
-              </div>
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {/* Informations du compte */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Informations du compte
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Nom</label>
+              <p className="font-medium">{userData.name}</p>
             </div>
-          </AlertDescription>
-        </Alert>
-      )}
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Email</label>
+              <p className="font-medium">{userData.email}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Rôle</label>
+              <p className="font-medium capitalize">{userData.role}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Membre depuis</label>
+              <p className="text-sm">{new Date(userData.created_at).toLocaleDateString('fr-FR')}</p>
+            </div>
+            <Button className="w-full" onClick={() => router.push('/account/settings')}>
+              <Settings className="h-4 w-4 mr-2" />
+              Modifier le profil
+            </Button>
+          </CardContent>
+        </Card>
 
-      {/* Tabs principal */}
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
-          <TabsTrigger value="orders">Mes Commandes</TabsTrigger>
-          <TabsTrigger value="settings">Paramètres</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-4">
-          {/* ✅ Statistiques avec données réelles */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Commandes</CardTitle>
-                <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{userStats.totalOrders}</div>
-                <p className="text-xs text-muted-foreground">Total des achats</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Dépenses</CardTitle>
-                <span className="text-sm">XOF</span>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {userStats.totalSpent.toLocaleString('fr-FR')}
-                </div>
-                <p className="text-xs text-muted-foreground">Total dépensé</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Événements</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{userStats.eventsAttended}</div>
-                <p className="text-xs text-muted-foreground">Événements différents</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Commandes récentes */}
-          <Card>
+        {/* Commandes récentes - Seulement pour les utilisateurs normaux */}
+        {userData.role === 'user' && (
+          <Card className="md:col-span-2">
             <CardHeader>
-              <CardTitle>Commandes Récentes</CardTitle>
-              <CardDescription>Vos derniers achats de billets</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Mes commandes
+                {ordersLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              </CardTitle>
+              <CardDescription>
+                Historique de vos achats de billets et accès
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {orders.length > 0 ? (
+              {ordersLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-center">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Chargement des commandes...</p>
+                  </div>
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="text-center py-8">
+                  <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="font-semibold mb-2">Aucune commande</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Vous n'avez pas encore acheté de billets.
+                  </p>
+                  <Button onClick={() => router.push('/events')}>
+                    Découvrir les événements
+                  </Button>
+                </div>
+              ) : (
                 <div className="space-y-4">
-                  {orders.slice(0, 5).map((order) => (
-                    <div key={order.id} className="flex items-center justify-between p-3 rounded-lg border">
-                      <div className="flex items-center gap-3">
-                        <Ticket className="h-5 w-5 text-primary" />
-                        <div>
-                          <h4 className="font-medium">{order.event?.title || 'Événement'}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            {order.ticket?.name} • {new Date(order.purchaseDate).toLocaleDateString('fr-FR')}
-                          </p>
+                  {orders.slice(0, 3).map((order) => (
+                    <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex-1">
+                        <h4 className="font-medium">{order.event?.title || 'Événement inconnu'}</h4>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-4 w-4" />
+                            {order.event?.date ? new Date(order.event.date).toLocaleDateString('fr-FR') : 
+                             order.event?.startTime ? new Date(order.event.startTime).toLocaleDateString('fr-FR') : 
+                             'Date inconnue'}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-4 w-4" />
+                            {order.event?.location || 'En ligne'}
+                          </span>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">{order.ticket?.price?.toLocaleString('fr-FR')} XOF</p>
-                        <Badge variant="secondary" className="text-xs">
-                          Confirmé
+                        <p className="font-medium">{order.ticket?.price || 0}€</p>
+                        <Badge 
+                          variant={isConfirmedOrder(order.status) ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {/* ✅ CORRECTION : Utilisation de la fonction helper au lieu de comparaisons directes */}
+                          {isConfirmedOrder(order.status) ? 'Confirmé' : 'En attente'}
                         </Badge>
                       </div>
                     </div>
                   ))}
-                  {orders.length > 5 && (
-                    <p className="text-center text-sm text-muted-foreground pt-2">
-                      Et {orders.length - 5} autres commandes...
-                    </p>
+                  
+                  {orders.length > 3 && (
+                    <div className="text-center pt-4">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => router.push('/account/orders')}
+                      >
+                        Voir toutes les commandes ({orders.length})
+                      </Button>
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">Aucune commande</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Vous n'avez pas encore acheté de billets.
-                  </p>
-                  <Button asChild>
-                    <a href="/">Découvrir les événements</a>
-                  </Button>
-                </div>
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        )}
 
-        <TabsContent value="orders" className="space-y-4">
-          {/* ✅ Liste complète des commandes réelles */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShoppingBag className="h-5 w-5" />
-                Toutes mes Commandes ({orders.length})
-              </CardTitle>
-              <CardDescription>Historique complet de vos achats de billets</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {orders.length > 0 ? (
-                <div className="space-y-4">
-                  {orders.map((order) => (
-                    <Card key={order.id} className="border-l-4 border-l-primary">
-                      <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                              <Ticket className="h-6 w-6 text-primary" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold">{order.event?.title}</h3>
-                              <p className="text-sm text-muted-foreground">
-                                {order.ticket?.name}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                Commandé le {new Date(order.purchaseDate).toLocaleString('fr-FR')}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-semibold">
-                              {order.ticket?.price?.toLocaleString('fr-FR')} XOF
-                            </p>
-                            <Badge variant="secondary">Confirmé</Badge>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+        {/* Statistiques */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Statistiques
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {userData.role === 'user' ? (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Commandes totales</label>
+                  <p className="text-2xl font-bold">{orders.length}</p>
                 </div>
-              ) : (
-                <div className="text-center py-12">
-                  <ShoppingBag className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-xl font-medium mb-2">Aucune commande trouvée</h3>
-                  <p className="text-muted-foreground mb-6">
-                    Commencez à explorer nos événements pour faire votre premier achat !
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Montant dépensé</label>
+                  <p className="text-2xl font-bold">
+                    {orders.reduce((total, order) => total + (order.ticket?.price || 0), 0)}€
                   </p>
-                  <Button asChild size="lg">
-                    <a href="/">Explorer les événements</a>
-                  </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="settings" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Paramètres du Compte
-              </CardTitle>
-              <CardDescription>Gérez vos informations personnelles</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="name">Nom</Label>
-                <Input id="name" defaultValue={userData.name || ''} />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" defaultValue={userData.email} disabled />
-                <p className="text-xs text-muted-foreground">L'email ne peut pas être modifié</p>
-              </div>
-
-              <Separator />
-              
-              <div className="space-y-2">
-                <h4 className="font-medium">Informations du compte</h4>
-                <div className="text-sm space-y-1">
-                  <p><span className="text-muted-foreground">Rôle:</span> {roleInfo.label}</p>
-                  <p><span className="text-muted-foreground">Membre depuis:</span> {new Date(userData.created_at).toLocaleDateString('fr-FR')}</p>
-                  <p><span className="text-muted-foreground">Dernière modification:</span> {new Date(userData.updated_at).toLocaleDateString('fr-FR')}</p>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Événements assistés</label>
+                  <p className="text-2xl font-bold">
+                    {/* ✅ CORRECTION : Utilisation de la fonction helper */}
+                    {orders.filter(order => isConfirmedOrder(order.status)).length}
+                  </p>
                 </div>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <Button>Sauvegarder les modifications</Button>
-                <Button variant="outline" onClick={handleSignOut}>
-                  Se déconnecter
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Compte créé</label>
+                  <p className="font-medium">{new Date(userData.created_at).toLocaleDateString('fr-FR')}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Dernière connexion</label>
+                  <p className="font-medium">Aujourd'hui</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Statut</label>
+                  <Badge variant="default">Actif</Badge>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
